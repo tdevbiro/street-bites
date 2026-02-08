@@ -530,24 +530,6 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
                                     // Also add to all businesses in this company
                                     setBusinesses(prev => prev.map(b => b.companyId === companyId ? { ...b, scheduledLocations: [...(b.scheduledLocations || []), location] } : b));
                                  }}
-                                 onToggleAttendance={(locationId: string, userId: string) => {
-                                    setCompanies(prev => prev.map(c => ({
-                                       ...c,
-                                       scheduledLocations: (c.scheduledLocations || []).map(loc => 
-                                          loc.id === locationId 
-                                             ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
-                                             : loc
-                                       )
-                                    })));
-                                    setBusinesses(prev => prev.map(b => ({
-                                       ...b,
-                                       scheduledLocations: (b.scheduledLocations || []).map(loc => 
-                                          loc.id === locationId 
-                                             ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
-                                             : loc
-                                       )
-                                    })));
-                                 }}
                     />
                  ) : activeView === 'feed' ? (
                     <FeedView businesses={businesses} />
