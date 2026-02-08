@@ -1222,59 +1222,60 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                      </div>
                   </div>
                </div>
-            )}
-         
-         <div className="mt-10 bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
-            <h2 className="text-lg font-black text-slate-900">Manage Drivers</h2>
-            
-            <div className="space-y-4">
-               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select Company</label>
-               <select
-                  value={activeCompanyId}
-                  onChange={(e) => setActiveCompanyId(e.target.value)}
-                  className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
-               >
-                  <option value="">Choose company</option>
-                  {myCompanies.map((c: Company) => (
-                     <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-               </select>
             </div>
-            
-            {activeCompanyId && (
+         )}
+         
+            <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
+               <h2 className="text-lg font-black text-slate-900">Manage Drivers</h2>
+               
                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                     <h3 className="text-sm font-black text-slate-900">Drivers</h3>
-                  </div>
-                  <div className="flex flex-col sm:flex-row gap-3">
-                     <input
-                        value={driverName}
-                        onChange={(e) => setDriverName(e.target.value)}
-                        placeholder="Driver name"
-                        className="flex-1 px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
-                     />
-                     <button
-                        disabled={!driverName.trim()}
-                        onClick={() => {
-                           onAddDriver(activeCompanyId, { id: `drv_${Date.now()}`, name: driverName.trim() });
-                           setDriverName('');
-                        }}
-                        className="px-6 py-4 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
-                     >
-                        Add Driver
-                     </button>
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-2">
-                     {(myCompanies.find((c: Company) => c.id === activeCompanyId)?.drivers || []).map((d: DriverProfile) => (
-                        <div key={d.id} className="px-3 py-2 rounded-full bg-slate-50 border border-slate-100 text-xs font-black text-slate-600">
-                           {d.name}
-                        </div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select Company</label>
+                  <select
+                     value={activeCompanyId}
+                     onChange={(e) => setActiveCompanyId(e.target.value)}
+                     className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                  >
+                     <option value="">Choose company</option>
+                     {myCompanies.map((c: Company) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
                      ))}
-                  </div>
+                  </select>
                </div>
-            )}
-         </div>
+               
+               {activeCompanyId && (
+                  <div className="space-y-4">
+                     <div className="flex items-center justify-between">
+                        <h3 className="text-sm font-black text-slate-900">Drivers</h3>
+                     </div>
+                     <div className="flex flex-col sm:flex-row gap-3">
+                        <input
+                           value={driverName}
+                           onChange={(e) => setDriverName(e.target.value)}
+                           placeholder="Driver name"
+                           className="flex-1 px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                        />
+                        <button
+                           disabled={!driverName.trim()}
+                           onClick={() => {
+                              onAddDriver(activeCompanyId, { id: `drv_${Date.now()}`, name: driverName.trim() });
+                              setDriverName('');
+                           }}
+                           className="px-6 py-4 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                        >
+                           Add Driver
+                        </button>
+                     </div>
+                     
+                     <div className="flex flex-wrap gap-2">
+                        {(myCompanies.find((c: Company) => c.id === activeCompanyId)?.drivers || []).map((d: DriverProfile) => (
+                           <div key={d.id} className="px-3 py-2 rounded-full bg-slate-50 border border-slate-100 text-xs font-black text-slate-600">
+                              {d.name}
+                           </div>
+                        ))}
+                     </div>
+                  </div>
+               )}
+            </div>
          </div>
       </div>
    );
