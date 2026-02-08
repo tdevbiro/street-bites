@@ -339,7 +339,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
                   className="flex items-center gap-2 group"
                   aria-label="Go to home"
                >
-                  <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform"><Truck size={18} /></div>
+                  <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform"><Zap size={18} /></div>
                   <h1 className="text-lg font-black tracking-tighter text-orange-900 hidden sm:block">StreetBites</h1>
                </button>
                <div className="flex items-center gap-1.5 ml-4 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-100">
@@ -1679,7 +1679,7 @@ const OnboardingFlow: React.FC<any> = ({ onComplete }) => {
         {step === 1 ? (
           <div className="space-y-8">
              <div className="text-center">
-                <div className="w-20 h-20 bg-orange-50 rounded-3xl flex items-center justify-center mx-auto text-orange-500 mb-6"><Store size={40}/></div>
+                <div className="w-20 h-20 bg-orange-50 rounded-3xl flex items-center justify-center mx-auto text-orange-500 mb-6"><Zap size={40}/></div>
                 <h2 className="text-3xl font-black text-slate-900 tracking-tight">Select your role</h2>
                 <p className="text-slate-400 text-sm font-medium mt-2">How will you use StreetBites today?</p>
              </div>
@@ -1699,10 +1699,10 @@ const OnboardingFlow: React.FC<any> = ({ onComplete }) => {
           </div>
         ) : (
           <div className="space-y-8">
-             <button onClick={() => setStep(1)} className="text-slate-300 flex items-center gap-1 text-[10px] font-black uppercase"><ChevronLeft size={16}/> Back</button>
+             <button onClick={() => setStep(1)} className="text-slate-300 flex items-center gap-1 text-[10px] font-black uppercase hover:text-slate-400 transition-colors"><ChevronLeft size={16}/> Back</button>
              <div className="text-center"><h2 className="text-3xl font-black text-slate-900 tracking-tight">Your Identity</h2><p className="text-slate-400 text-sm font-medium mt-2">What should we call you on the map?</p></div>
-             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Enter your name..." className="w-full bg-slate-50 border-2 border-transparent focus:border-orange-500 p-5 rounded-2xl outline-none font-bold shadow-inner" />
-             <button disabled={!name.trim()} onClick={() => onComplete(name, role)} className="w-full bg-orange-500 text-white py-6 rounded-3xl font-black uppercase text-xs tracking-widest disabled:opacity-50 shadow-xl active:scale-95 transition-all">Start Exploring</button>
+             <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Enter your name..." className="w-full bg-slate-50 border-2 border-transparent focus:border-orange-500 p-5 rounded-2xl outline-none font-bold shadow-inner" autoFocus />
+             <button disabled={!name.trim()} onClick={() => {console.log('Login clicked:', name, role); onComplete(name, role);}} className="w-full bg-orange-500 text-white py-6 rounded-3xl font-black uppercase text-xs tracking-widest disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:bg-orange-600 shadow-xl active:scale-95 transition-all cursor-pointer">Start Exploring</button>
           </div>
         )}
       </div>
