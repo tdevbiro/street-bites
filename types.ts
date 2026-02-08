@@ -153,8 +153,11 @@ export interface UserProfile {
 
 export interface DriverProfile {
   id: string;
-  name: string;
+  name: string; // Display name (first name or short name)
+  fullName?: string; // Full legal name
+  email?: string;
   phone?: string;
+  companyId?: string; // Which company the driver belongs to
   status?: 'online' | 'offline' | 'on-delivery' | 'on-break';
   location?: [number, number]; // Latitude, longitude
   lastUpdated?: number; // Timestamp

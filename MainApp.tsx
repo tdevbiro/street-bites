@@ -114,6 +114,8 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('recommended');
+  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [showOnlyFollowed, setShowOnlyFollowed] = useState(false);
 
   useEffect(() => {
       const init = async () => {
@@ -211,6 +213,12 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
 
   const filteredBusinesses = useMemo(() => {
     let list = [...businesses];
+    
+    // Filter by followed businesses if toggle is on
+    if (showOnlyFollowed && profile) {
+      list = list.filter(b => profile.following.includes(b.id));
+    }
+    
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       list = list.filter(b => b.name.toLowerCase().includes(q) || b.category.toLowerCase().includes(q) || (b.tags && b.tags.some(t => t.toLowerCase().includes(q))));
@@ -221,7 +229,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
       return b.currentVisitors - a.currentVisitors;
     });
     return list;
-  }, [businesses, searchQuery, sortBy]);
+  }, [businesses, searchQuery, sortBy, showOnlyFollowed, profile]);
 
   const handleOnboarding = (n: string, r: UserRole) => {
     const user: UserProfile = { 
@@ -284,7 +292,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   if (!profile) return <OnboardingFlow onComplete={handleOnboarding} />;
 
   return (
-    <div className="h-full flex flex-col bg-orange-50/20 overflow-hidden relative">
+    <div className={`h-full flex flex-col ${isDarkMode ? 'bg-slate-900' : 'bg-orange-50/20'} overflow-hidden relative transition-colors duration-300`}>
       {/* GLOBAL STATUS BAR */}
       <div className={`h-1 transition-all duration-500 ${isSyncing ? 'bg-emerald-400 opacity-100' : 'bg-transparent opacity-0'} absolute top-0 left-0 right-0 z-[9999]`} />
 
@@ -324,7 +332,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
          </div>
       )}
 
-         <header className="px-6 py-4 flex items-center justify-between z-[2000] border-b border-orange-100 bg-white/95 backdrop-blur-md h-16 shrink-0 shadow-sm">
+         <header className={`px-6 py-4 flex items-center justify-between z-[2000] border-b ${isDarkMode ? 'border-slate-800 bg-slate-900/95' : 'border-orange-100 bg-white/95'} backdrop-blur-md h-16 shrink-0 shadow-sm transition-colors duration-300`}>
             <div className="flex items-center gap-2">
                <button
                   onClick={() => { setActiveView('explorer'); setSelectedBusiness(null); setIsSidebarOpen(true); }}
@@ -348,6 +356,13 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
         )}
 
         <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setIsDarkMode(!isDarkMode)} 
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isDarkMode ? 'bg-slate-800 text-yellow-400' : 'bg-slate-100 text-slate-600'} hover:scale-110`}
+            aria-label="Toggle dark mode"
+          >
+            {isDarkMode ? <Sparkles size={18} /> : <Sparkles size={18} />}
+          </button>
           <button onClick={() => setActiveView('me')} className="w-10 h-10 rounded-full border-2 border-orange-200 p-0.5 hover:border-orange-500 transition-all bg-white flex items-center justify-center">
              <div className="w-full h-full bg-orange-50 rounded-full flex items-center justify-center text-orange-500 font-black text-xs">{profile.name.charAt(0)}</div>
           </button>
@@ -356,28 +371,36 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
 
       <main className="flex-1 relative overflow-hidden flex flex-row h-full">
         {/* SIDEBAR */}
-        <aside className={`${window.innerWidth < 768 ? (isSidebarOpen && activeView === 'explorer' ? 'mobile-sheet-overlay' : 'hidden') : (isSidebarOpen ? 'w-[380px]' : 'w-0 overflow-hidden')} h-full bg-white border-r border-orange-100 z-30 transition-all duration-300 flex flex-col`}>
+        <aside className={`${window.innerWidth < 768 ? (isSidebarOpen && activeView === 'explorer' ? 'mobile-sheet-overlay' : 'hidden') : (isSidebarOpen ? 'w-[380px]' : 'w-0 overflow-hidden')} h-full ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-orange-100'} border-r z-30 transition-all duration-300 flex flex-col`}>
           <div className="px-6 pt-6 pb-2 space-y-4 shrink-0">
              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-black text-orange-950">Active Near You</h2>
-                <button onClick={() => setIsSidebarOpen(false)} className="text-slate-300 hover:text-orange-500"><ChevronFirst size={24}/></button>
+                <h2 className={`text-xl font-black ${isDarkMode ? 'text-white' : 'text-orange-950'}`}>Active Near You</h2>
+                <button onClick={() => setIsSidebarOpen(false)} className={`${isDarkMode ? 'text-slate-500 hover:text-orange-400' : 'text-slate-300 hover:text-orange-500'}`}><ChevronFirst size={24}/></button>
              </div>
-             <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
-                {[
-                  { id: 'recommended', label: 'Hot', icon: <Flame size={12}/> },
-                  { id: 'rating', label: 'Top', icon: <Star size={12}/> },
-                  { id: 'alphabetical', label: 'A-Z', icon: <ArrowUpDown size={12}/> }
-                ].map(opt => (
-                  <button key={opt.id} onClick={() => setSortBy(opt.id as any)} className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase transition-all ${sortBy === opt.id ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}>
-                    {opt.icon} {opt.label}
-                  </button>
-                ))}
+             <div className="flex gap-2 items-center">
+                <button 
+                  onClick={() => setShowOnlyFollowed(!showOnlyFollowed)}
+                  className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase transition-all ${showOnlyFollowed ? 'bg-orange-500 text-white shadow-md' : (isDarkMode ? 'bg-slate-700 text-slate-300 border border-slate-600' : 'bg-slate-50 text-slate-400 border border-slate-100')}`}
+                >
+                  <Heart size={12} className={showOnlyFollowed ? 'fill-current' : ''} /> {showOnlyFollowed ? 'Following' : 'All'}
+                </button>
+                <div className="flex gap-2 overflow-x-auto no-scrollbar py-1 flex-1">
+                  {[
+                    { id: 'recommended', label: 'Hot', icon: <Flame size={12}/> },
+                    { id: 'rating', label: 'Top', icon: <Star size={12}/> },
+                    { id: 'alphabetical', label: 'A-Z', icon: <ArrowUpDown size={12}/> }
+                  ].map(opt => (
+                    <button key={opt.id} onClick={() => setSortBy(opt.id as any)} className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-2xl text-[10px] font-black uppercase transition-all ${sortBy === opt.id ? 'bg-orange-500 text-white shadow-md' : (isDarkMode ? 'bg-slate-700 text-slate-300 border border-slate-600' : 'bg-slate-50 text-slate-400 border border-slate-100')}`}>
+                      {opt.icon} {opt.label}
+                    </button>
+                  ))}
+                </div>
              </div>
           </div>
           
           <div className="flex-1 overflow-y-auto px-6 pb-24 space-y-3 custom-scroll pt-2">
             {filteredBusinesses.map(biz => (
-              <div key={biz.id} onClick={() => { setSelectedBusiness(biz); if(window.innerWidth < 768) setIsSidebarOpen(false); }} className={`flex items-center gap-4 p-5 rounded-[2.5rem] border transition-all cursor-pointer group ${selectedBusiness?.id === biz.id ? 'bg-orange-500 text-white shadow-xl scale-[1.02]' : 'bg-white border-orange-50 hover:bg-orange-50'}`}>
+              <div key={biz.id} onClick={() => { setSelectedBusiness(biz); if(window.innerWidth < 768) setIsSidebarOpen(false); }} className={`flex items-center gap-4 p-5 rounded-[2.5rem] border transition-all cursor-pointer group ${selectedBusiness?.id === biz.id ? 'bg-orange-500 text-white shadow-xl scale-[1.02]' : (isDarkMode ? 'bg-slate-700 border-slate-600 hover:bg-slate-600' : 'bg-white border-orange-50 hover:bg-orange-50')}`}>
                 <img src={biz.imageUrl} className="w-16 h-16 rounded-2xl object-cover shadow-sm" />
                 <div className="min-w-0 flex-1">
                   <div className="flex justify-between items-start"><h3 className="font-black text-sm truncate">{biz.name}</h3><span className={`text-[8px] font-black ${selectedBusiness?.id === biz.id ? 'text-white' : 'text-orange-400'}`}>{biz.rating} ★</span></div>
@@ -716,6 +739,10 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
    const [newCompanyId, setNewCompanyId] = useState<string>('');
    const [companyName, setCompanyName] = useState('');
    const [driverName, setDriverName] = useState('');
+   const [driverFullName, setDriverFullName] = useState('');
+   const [driverEmail, setDriverEmail] = useState('');
+   const [driverPhone, setDriverPhone] = useState('');
+   const [showAddDriver, setShowAddDriver] = useState(false);
    const [activeCompanyId, setActiveCompanyId] = useState<string>('');
    const [editingCompanyId, setEditingCompanyId] = useState<string>('');
    const [showScheduleModal, setShowScheduleModal] = useState(false);
@@ -1246,32 +1273,124 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                   <div className="space-y-4">
                      <div className="flex items-center justify-between">
                         <h3 className="text-sm font-black text-slate-900">Drivers</h3>
-                     </div>
-                     <div className="flex flex-col sm:flex-row gap-3">
-                        <input
-                           value={driverName}
-                           onChange={(e) => setDriverName(e.target.value)}
-                           placeholder="Driver name"
-                           className="flex-1 px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
-                        />
                         <button
-                           disabled={!driverName.trim()}
-                           onClick={() => {
-                              onAddDriver(activeCompanyId, { id: `drv_${Date.now()}`, name: driverName.trim() });
-                              setDriverName('');
-                           }}
-                           className="px-6 py-4 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                           onClick={() => setShowAddDriver(!showAddDriver)}
+                           className="px-4 py-2 rounded-xl bg-orange-500 text-white font-black text-xs uppercase flex items-center gap-2"
                         >
-                           Add Driver
+                           <Plus size={14} /> Add Driver
                         </button>
                      </div>
                      
-                     <div className="flex flex-wrap gap-2">
-                        {(myCompanies.find((c: Company) => c.id === activeCompanyId)?.drivers || []).map((d: DriverProfile) => (
-                           <div key={d.id} className="px-3 py-2 rounded-full bg-slate-50 border border-slate-100 text-xs font-black text-slate-600">
-                              {d.name}
+                     {showAddDriver && (
+                        <div className="p-6 rounded-2xl bg-orange-50 border-2 border-orange-200 space-y-4">
+                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <input
+                                 value={driverName}
+                                 onChange={(e) => setDriverName(e.target.value)}
+                                 placeholder="Display name (e.g., János)"
+                                 className="px-4 py-3 rounded-xl border-2 border-orange-100 font-bold text-sm focus:border-orange-400 outline-none"
+                              />
+                              <input
+                                 value={driverFullName}
+                                 onChange={(e) => setDriverFullName(e.target.value)}
+                                 placeholder="Full name (e.g., Kovács János)"
+                                 className="px-4 py-3 rounded-xl border-2 border-orange-100 font-bold text-sm focus:border-orange-400 outline-none"
+                              />
+                              <input
+                                 value={driverEmail}
+                                 onChange={(e) => setDriverEmail(e.target.value)}
+                                 placeholder="Email"
+                                 type="email"
+                                 className="px-4 py-3 rounded-xl border-2 border-orange-100 font-bold text-sm focus:border-orange-400 outline-none"
+                              />
+                              <input
+                                 value={driverPhone}
+                                 onChange={(e) => setDriverPhone(e.target.value)}
+                                 placeholder="Phone number"
+                                 type="tel"
+                                 className="px-4 py-3 rounded-xl border-2 border-orange-100 font-bold text-sm focus:border-orange-400 outline-none"
+                              />
                            </div>
-                        ))}
+                           <div className="flex gap-2">
+                              <button
+                                 disabled={!driverName.trim() || !driverFullName.trim()}
+                                 onClick={() => {
+                                    onAddDriver(activeCompanyId, { 
+                                       id: `drv_${Date.now()}`, 
+                                       name: driverName.trim(),
+                                       fullName: driverFullName.trim(),
+                                       email: driverEmail.trim() || undefined,
+                                       phone: driverPhone.trim() || undefined,
+                                       companyId: activeCompanyId
+                                    });
+                                    setDriverName('');
+                                    setDriverFullName('');
+                                    setDriverEmail('');
+                                    setDriverPhone('');
+                                    setShowAddDriver(false);
+                                 }}
+                                 className="flex-1 py-3 rounded-xl bg-orange-500 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                              >
+                                 Save Driver
+                              </button>
+                              <button
+                                 onClick={() => setShowAddDriver(false)}
+                                 className="px-6 py-3 rounded-xl border-2 border-orange-200 font-black text-xs uppercase"
+                              >
+                                 Cancel
+                              </button>
+                           </div>
+                        </div>
+                     )}
+                     
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {(myCompanies.find((c: Company) => c.id === activeCompanyId)?.drivers || []).map((d: DriverProfile) => {
+                           // Get initials from full name or name (last 2 letters of last name)
+                           const getInitials = () => {
+                              if (d.fullName) {
+                                 const names = d.fullName.split(' ');
+                                 if (names.length >= 2) {
+                                    const lastName = names[names.length - 1];
+                                    return lastName.substring(0, 2).toUpperCase();
+                                 }
+                              }
+                              return d.name.substring(0, 2).toUpperCase();
+                           };
+                           
+                           return (
+                              <div key={d.id} className="p-4 rounded-2xl bg-white border-2 border-slate-100 hover:border-orange-300 transition-all group">
+                                 <div className="flex items-start gap-3">
+                                    <div className="w-12 h-12 rounded-full bg-orange-500 text-white flex items-center justify-center font-black text-sm shrink-0">
+                                       {getInitials()}
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                       <h4 className="font-black text-sm text-slate-900">{d.name}</h4>
+                                       {d.fullName && <p className="text-[10px] text-slate-500 font-medium">{d.fullName}</p>}
+                                       <div className="mt-2 space-y-1">
+                                          {d.email && <p className="text-[9px] text-slate-600 flex items-center gap-1"><Contact2 size={10} /> {d.email}</p>}
+                                          {d.phone && <p className="text-[9px] text-slate-600 flex items-center gap-1"><Smartphone size={10} /> {d.phone}</p>}
+                                       </div>
+                                       {d.status && (
+                                          <div className={`mt-2 inline-flex items-center gap-1 px-2 py-1 rounded-full text-[8px] font-black uppercase ${
+                                             d.status === 'online' ? 'bg-green-100 text-green-700' :
+                                             d.status === 'on-delivery' ? 'bg-red-100 text-red-700' :
+                                             d.status === 'on-break' ? 'bg-yellow-100 text-yellow-700' :
+                                             'bg-slate-100 text-slate-500'
+                                          }`}>
+                                             <div className={`w-1.5 h-1.5 rounded-full ${
+                                                d.status === 'online' ? 'bg-green-500' :
+                                                d.status === 'on-delivery' ? 'bg-red-500' :
+                                                d.status === 'on-break' ? 'bg-yellow-500' :
+                                                'bg-slate-400'
+                                             }`} />
+                                             {d.status}
+                                          </div>
+                                       )}
+                                    </div>
+                                 </div>
+                              </div>
+                           );
+                        })}
                      </div>
                   </div>
                )}
