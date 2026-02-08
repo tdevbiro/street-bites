@@ -6,13 +6,13 @@ import {
   Star, Heart, Plus, TrendingUp, Clock, Users, ArrowRight, Utensils, LogOut,
   LayoutDashboard, Search, Navigation2, X, Sparkles, Share2,
   Layers, MapPin, Check, ChevronDown, ChevronLeft, ChevronRight, MessageSquare,
-  Send, User, Award, History, Bell, AlertTriangle, Radio, MapPinned, ShoppingBag,
+   Send, User, Award, History, Bell, AlertTriangle, Radio, ShoppingBag,
   Trash2, Settings, ShieldAlert, Zap, Ghost, Eye, Menu, Store, Briefcase, Camera,
-  Info, Map as MapIcon2, UserRound, UserPlus, Fingerprint, Sparkle, Flame, Flag, AlertCircle,
+   Info, Map as MapIcon2, UserPlus, Fingerprint, Sparkle, Flame, Flag, AlertCircle,
   Leaf, Beef, WheatOff, Timer, Calendar, Newspaper, Rss, CreditCard,
-  Crown, Gem, Truck, Copy, UserMinus, EyeOff, Contact2, Bot, ChevronLast, ChevronFirst,
-  ChefHat, MapPinned as MapIcon, CalendarDays, Filter, ArrowUpDown, Wallet, Map as MapUi,
-  Cloud, CloudSync, QrCode, Smartphone, RefreshCw, Link as LinkIcon, ExternalLink
+   Crown, Gem, Truck, Copy, UserMinus, EyeOff, Contact2, Bot, ChevronLast, ChevronFirst,
+    ChefHat, CalendarDays, Filter, ArrowUpDown, Wallet, Map as MapUi,
+   Cloud, QrCode, Smartphone, RefreshCw, Link as LinkIcon, ExternalLink
 } from 'lucide-react';
 import { Business, BusinessStatus, BusinessCategory, SortOption, UserProfile, UserRole, Message, Review, BusinessPost, Product, FeedPost, SubscriptionTier, FriendRequest, DirectMessage } from './types';
 import { MOCK_BUSINESSES, STATUS_COLORS, CATEGORY_ICONS } from './constants';
@@ -68,9 +68,13 @@ const UserLocationMarker: React.FC<{ profile: UserProfile, location: [number, nu
   return <Marker position={location} icon={userIcon} />;
 };
 
-const App: React.FC = () => {
+interface MainAppProps {
+   initialProfile: UserProfile;
+}
+
+export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+   const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -83,13 +87,12 @@ const App: React.FC = () => {
   const [sortBy, setSortBy] = useState<SortOption>('recommended');
 
   useEffect(() => {
-    const init = async () => {
-      const biz = await StreetBitesAPI.fetchBusinesses();
-      const prof = await StreetBitesAPI.fetchProfile();
-      setBusinesses(biz);
-      setProfile(prof);
-      setIsInitialLoading(false);
-    };
+      const init = async () => {
+         const biz = await StreetBitesAPI.fetchBusinesses();
+         setBusinesses(biz);
+         setProfile(initialProfile);
+         setIsInitialLoading(false);
+      };
     init();
 
     if (navigator.geolocation) {
@@ -137,7 +140,7 @@ const App: React.FC = () => {
 
   if (isInitialLoading) return (
     <div className="h-full flex flex-col items-center justify-center bg-orange-500 text-white space-y-6 px-10 text-center">
-       <div className="w-20 h-20 bg-white/20 rounded-[2.5rem] flex items-center justify-center animate-pulse"><CloudSync size={48} /></div>
+      <div className="w-20 h-20 bg-white/20 rounded-[2.5rem] flex items-center justify-center animate-pulse"><Cloud size={48} /></div>
        <div>
           <h2 className="text-3xl font-black tracking-tighter">STREETBITES</h2>
           <p className="text-white/60 font-black text-[10px] uppercase tracking-widest mt-2">Connecting to Cloud Services...</p>
@@ -325,7 +328,7 @@ const ProfileView: React.FC<any> = ({ profile, businesses, onLogout, onUpgrade }
          </div>
 
          <div className="bg-slate-50 p-8 rounded-[3rem] border border-slate-200 space-y-6">
-            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><MapPinned size={18} className="text-orange-400"/> Street Passport</h3>
+            <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><MapPin size={18} className="text-orange-400"/> Street Passport</h3>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
                {businesses.map((b: any) => {
                   const isUnlocked = profile.stats.passportStamps?.includes(b.id);
@@ -585,4 +588,4 @@ const MarkerWithPortal: React.FC<{ biz: Business, profile: UserProfile, isSelect
   );
 });
 
-export default App;
+export default MainApp;

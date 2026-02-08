@@ -1,22 +1,17 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Business } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 export async function generateAIReviewResponse(businessName: string, userComment: string) {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `You are the owner of a mobile business named "${businessName}". A customer left this review: "${userComment}". 
-      Write a friendly, professional, and short response (max 2 sentences) thanking them or addressing their comment.`,
-      config: {
-        temperature: 0.7,
-        maxOutputTokens: 100,
-        thinkingConfig: { thinkingBudget: 50 },
-      }
-    });
-    return response.text || "Thank you for visiting us! We hope to see you again soon.";
+    const response = await model.generateContent(
+      `You are the owner of a mobile business named "${businessName}". A customer left this review: "${userComment}". 
+Write a friendly, professional, and short response (max 2 sentences) thanking them or addressing their comment.`
+    );
+    return response.response.text() || "Thank you for visiting us! We hope to see you again soon.";
   } catch (error) {
     console.error("Gemini AI Error:", error);
     return "Thank you for the feedback!";
@@ -25,14 +20,10 @@ export async function generateAIReviewResponse(businessName: string, userComment
 
 export async function getSmartCategorySuggestion(description: string) {
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Given the description: "${description}", suggest the most appropriate category from this list: Food Truck, Ice Cream, Coffee, Flower Truck, Fashion Van, Pet Grooming. Output only the category name.`,
-      config: {
-        temperature: 0.1,
-      }
-    });
-    return response.text.trim();
+    const response = await model.generateContent(
+      `Given the description: "${description}", suggest the most appropriate category from this list: Food Truck, Ice Cream, Coffee, Flower Truck, Fashion Van, Pet Grooming. Output only the category name.`
+    );
+    return response.response.text().trim();
   } catch (error) {
     return "Food Truck";
   }
@@ -49,27 +40,17 @@ export async function getAISmartFilter(query: string, businesses: Business[]) {
       rating: b.rating
     }));
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `User is searching for: "${query}". Based on this list of businesses, return a JSON array of IDs for the businesses that best match the query. 
-      Business list: ${JSON.stringify(bizList)}`,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            recommendedIds: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            }
-          },
-          required: ["recommendedIds"]
-        }
-      }
-    });
+    const response = await model.generateContent(
+      `User is searching for: "${query}". Based on this list of businesses, return JSON with a key "recommendedIds" that is an array of IDs for the businesses that best match the query.
+Business list: ${JSON.stringify(bizList)}`
+    );
 
-    const result = JSON.parse(response.text);
-    return result.recommendedIds as string[];
+    const text = response.response.text();
+    const jsonStart = text.indexOf("{");
+    const jsonEnd = text.lastIndexOf("}");
+    const json = jsonStart !== -1 && jsonEnd !== -1 ? text.slice(jsonStart, jsonEnd + 1) : "{}";
+    const result = JSON.parse(json);
+    return (result.recommendedIds || []) as string[];
   } catch (error) {
     console.error("AI Filter Error:", error);
     return [];
