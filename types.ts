@@ -73,6 +73,8 @@ export interface Business {
   ownerId: string;
   driverId?: string;
   driverName?: string;
+  companyId?: string;
+  companyName?: string;
   name: string;
   category: BusinessCategory | string;
   status: BusinessStatus;
@@ -93,6 +95,7 @@ export interface Business {
   route?: RouteStep[];
   inviteCode?: string;
   checkedInUsers?: string[]; // IDs of users currently there
+  scheduledLocations?: ScheduledLocation[]; // Upcoming planned locations
 }
 
 export enum UserRole {
@@ -146,6 +149,44 @@ export interface UserProfile {
   friends: string[]; // IDs of friends
   friendRequests: FriendRequest[];
   directMessages: Record<string, DirectMessage[]>; // Key is friendId
+}
+
+export interface DriverProfile {
+  id: string;
+  name: string;
+  phone?: string;
+}
+
+export interface ScheduledLocation {
+  id: string;
+  companyId: string;
+  businessId?: string; // Specific vehicle if applicable
+  dayOfWeek: 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+  locationName: string;
+  address: string;
+  coordinates?: [number, number];
+  startTime: string; // "09:00"
+  endTime: string; // "17:00"
+  attendees: string[]; // User IDs who marked "I'll be there"
+  description?: string;
+}
+
+export interface Company {
+  id: string;
+  ownerId: string;
+  name: string;
+  description?: string;
+  color?: string; // Brand color for the company
+  logoUrl?: string;
+  socialMediaLinks?: {
+    facebook?: string;
+    instagram?: string;
+    twitter?: string;
+    website?: string;
+  };
+  drivers: DriverProfile[];
+  vehicleIds: string[];
+  scheduledLocations?: ScheduledLocation[];
 }
 
 export type SortOption = 'rating' | 'favorite' | 'alphabetical' | 'recommended';

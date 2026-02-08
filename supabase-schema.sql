@@ -218,6 +218,10 @@ create policy "Users can update own profile"
   on public.profiles for update
   using (auth.uid() = id);
 
+create policy "Users can insert own profile"
+  on public.profiles for insert
+  with check (auth.uid() = id);
+
 -- Businesses policies
 create policy "Businesses are viewable by everyone"
   on public.businesses for select
@@ -387,7 +391,7 @@ $$ language plpgsql;
 
 -- Function to get business current location
 create or replace function public.get_business_current_location(business_uuid uuid)
-returns table(latitude double precision, longitude double precision, timestamp timestamp with time zone) as $$
+returns table(latitude double precision, longitude double precision, ts timestamp with time zone) as $$
 begin
   return query
   select l.latitude, l.longitude, l.timestamp

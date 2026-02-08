@@ -14,7 +14,7 @@ import {
     ChefHat, CalendarDays, Filter, ArrowUpDown, Wallet, Map as MapUi,
    Cloud, QrCode, Smartphone, RefreshCw, Link as LinkIcon, ExternalLink
 } from 'lucide-react';
-import { Business, BusinessStatus, BusinessCategory, SortOption, UserProfile, UserRole, Message, Review, BusinessPost, Product, FeedPost, SubscriptionTier, FriendRequest, DirectMessage } from './types';
+import { Business, BusinessStatus, BusinessCategory, SortOption, UserProfile, UserRole, Message, Review, BusinessPost, Product, FeedPost, SubscriptionTier, FriendRequest, DirectMessage, Company, DriverProfile, ScheduledLocation } from './types';
 import { MOCK_BUSINESSES, STATUS_COLORS, CATEGORY_ICONS } from './constants';
 import { CustomMarker } from './components/CustomMarker';
 import { generateAIReviewResponse, getSmartCategorySuggestion, getAISmartFilter } from './services/geminiService';
@@ -29,6 +29,24 @@ L.Icon.Default.mergeOptions({
 
 // Added ViewType definition to fix the missing type error
 type ViewType = 'explorer' | 'me' | 'owner' | 'feed' | 'social';
+
+// GPS Distance calculation (Haversine formula)
+const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+  const R = 6371e3; // Earth's radius in meters
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+  const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+          Math.cos(φ1) * Math.cos(φ2) *
+          Math.sin(Δλ/2) * Math.sin(Δλ/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+  return R * c; // Distance in meters
+};
+
+const CHECK_IN_RADIUS = 100; // 100 meters
 
 // --- BACKEND API SIMULATION LAYER ---
 const StreetBitesAPI = {
@@ -49,7 +67,16 @@ const StreetBitesAPI = {
   async saveProfile(profile: UserProfile) {
     await new Promise(r => setTimeout(r, 300));
     localStorage.setItem('streetbites_user', JSON.stringify(profile));
-  }
+   },
+   async fetchCompanies(): Promise<Company[]> {
+      await new Promise(r => setTimeout(r, 300));
+      const saved = localStorage.getItem('streetbites_companies');
+      return saved ? JSON.parse(saved) : [];
+   },
+   async saveCompanies(companies: Company[]) {
+      await new Promise(r => setTimeout(r, 300));
+      localStorage.setItem('streetbites_companies', JSON.stringify(companies));
+   }
 };
 
 const UserLocationMarker: React.FC<{ profile: UserProfile, location: [number, number] | null }> = ({ profile, location }) => {
@@ -74,10 +101,12 @@ interface MainAppProps {
 
 export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
+   const [companies, setCompanies] = useState<Company[]>([]);
    const [profile, setProfile] = useState<UserProfile | null>(initialProfile);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [notifications, setNotifications] = useState<Array<{ id: string; businessId: string; businessName: string; message: string; locationId: string }>>([]);
   
   const [activeView, setActiveView] = useState<ViewType>('explorer');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
@@ -89,7 +118,9 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   useEffect(() => {
       const init = async () => {
          const biz = await StreetBitesAPI.fetchBusinesses();
+         const comps = await StreetBitesAPI.fetchCompanies();
          setBusinesses(biz);
+         setCompanies(comps);
          setProfile(initialProfile);
          setIsInitialLoading(false);
       };
@@ -106,13 +137,63 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
     if (!isInitialLoading) {
       const sync = async () => {
         setIsSyncing(true);
-        if (profile) await StreetBitesAPI.saveProfile(profile);
-        await StreetBitesAPI.saveBusinesses(businesses);
+            if (profile) await StreetBitesAPI.saveProfile(profile);
+            await StreetBitesAPI.saveBusinesses(businesses);
+            await StreetBitesAPI.saveCompanies(companies);
         setTimeout(() => setIsSyncing(false), 800);
       };
       sync();
     }
-  }, [profile, businesses, isInitialLoading]);
+   }, [profile, businesses, companies, isInitialLoading]);
+
+  // Check for nearby scheduled locations from followed businesses
+  useEffect(() => {
+    if (!profile || !userLocation || !profile.notificationsEnabled) return;
+    
+    const now = new Date();
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const currentDay = dayNames[now.getDay()];
+    const currentTime = now.getHours() * 60 + now.getMinutes(); // minutes since midnight
+    
+    const newNotifications: typeof notifications = [];
+    
+    businesses.forEach(biz => {
+      if (!profile.following.includes(biz.id)) return;
+      
+      (biz.scheduledLocations || []).forEach(loc => {
+        // Check if it's today and currently open
+        if (loc.dayOfWeek !== currentDay) return;
+        
+        // Parse times
+        const [startHour, startMin] = loc.startTime.split(':').map(Number);
+        const [endHour, endMin] = loc.endTime.split(':').map(Number);
+        const startMinutes = startHour * 60 + startMin;
+        const endMinutes = endHour * 60 + endMin;
+        
+        if (currentTime < startMinutes || currentTime > endMinutes) return;
+        
+        // Check if nearby (within 500 meters)
+        if (loc.coordinates) {
+          const distance = calculateDistance(
+            userLocation[0], userLocation[1],
+            loc.coordinates[0], loc.coordinates[1]
+          );
+          
+          if (distance <= 500) {
+            newNotifications.push({
+              id: `${biz.id}-${loc.id}`,
+              businessId: biz.id,
+              businessName: biz.name,
+              locationId: loc.id,
+              message: `${biz.name} is open nearby at ${loc.locationName}! (${Math.round(distance)}m away)`
+            });
+          }
+        }
+      });
+    });
+    
+    setNotifications(newNotifications);
+  }, [userLocation, businesses, profile]);
 
   const filteredBusinesses = useMemo(() => {
     let list = [...businesses];
@@ -139,12 +220,50 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   };
 
   if (isInitialLoading) return (
-    <div className="h-full flex flex-col items-center justify-center bg-orange-500 text-white space-y-6 px-10 text-center">
-      <div className="w-20 h-20 bg-white/20 rounded-[2.5rem] flex items-center justify-center animate-pulse"><Cloud size={48} /></div>
-       <div>
-          <h2 className="text-3xl font-black tracking-tighter">STREETBITES</h2>
-          <p className="text-white/60 font-black text-[10px] uppercase tracking-widest mt-2">Connecting to Cloud Services...</p>
-       </div>
+    <div className="h-full flex flex-col items-center justify-center bg-gradient-to-br from-orange-500 via-orange-600 to-orange-700 text-white space-y-12 px-10 text-center relative overflow-hidden">
+      {/* Background pattern */}
+      <div className="absolute inset-0 opacity-10">
+        <div className="absolute top-1/4 left-1/4 w-32 h-32 bg-white rounded-full blur-3xl"></div>
+        <div className="absolute bottom-1/3 right-1/4 w-40 h-40 bg-white rounded-full blur-3xl"></div>
+      </div>
+      
+      {/* Animated Road with Moving Truck */}
+      <div className="relative w-full max-w-md z-10">
+        {/* Road */}
+        <div className="relative h-24 bg-slate-800/30 rounded-3xl overflow-hidden">
+          {/* Road stripes animation */}
+          <div className="absolute inset-0 flex items-center justify-around animate-[scroll_1.5s_linear_infinite]">
+            <div className="w-16 h-1 bg-white/40 rounded-full"></div>
+            <div className="w-16 h-1 bg-white/40 rounded-full"></div>
+            <div className="w-16 h-1 bg-white/40 rounded-full"></div>
+            <div className="w-16 h-1 bg-white/40 rounded-full"></div>
+          </div>
+          
+          {/* Moving Truck */}
+          <div className="absolute top-1/2 -translate-y-1/2 animate-[driveAcross_2.5s_ease-in-out_infinite]">
+            <div className="bg-white rounded-2xl p-3 shadow-2xl transform hover:scale-110 transition-transform">
+              <Truck size={32} className="text-orange-500" />
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Text */}
+      <div className="relative z-10">
+        <h2 className="text-4xl font-black tracking-tighter drop-shadow-lg">STREETBITES</h2>
+        <p className="text-white/80 font-black text-xs uppercase tracking-widest mt-3 animate-pulse">Loading your mobile businesses...</p>
+      </div>
+      
+      <style>{`
+        @keyframes driveAcross {
+          0% { left: -60px; }
+          100% { left: calc(100% + 20px); }
+        }
+        @keyframes scroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+      `}</style>
     </div>
   );
 
@@ -155,20 +274,62 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
       {/* GLOBAL STATUS BAR */}
       <div className={`h-1 transition-all duration-500 ${isSyncing ? 'bg-emerald-400 opacity-100' : 'bg-transparent opacity-0'} absolute top-0 left-0 right-0 z-[9999]`} />
 
-      <header className="px-6 py-4 flex items-center justify-between z-[2000] border-b border-orange-100 bg-white/95 backdrop-blur-md h-16 shrink-0 shadow-sm">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white shadow-md"><Utensils size={18} /></div>
-          <h1 className="text-lg font-black tracking-tighter text-orange-900 hidden sm:block">StreetBites</h1>
-          <div className="flex items-center gap-1.5 ml-4 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-100">
-             <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`} />
-             <span className="text-[8px] font-black uppercase text-slate-500">{isSyncing ? 'Saving...' : 'Synced'}</span>
-          </div>
-        </div>
+      {/* NOTIFICATIONS BANNER */}
+      {notifications.length > 0 && (
+         <div className="absolute top-20 left-0 right-0 z-[8000] p-4 pointer-events-none">
+            <div className="max-w-md mx-auto space-y-2 pointer-events-auto">
+               {notifications.map(notif => (
+                  <div 
+                     key={notif.id} 
+                     onClick={() => {
+                        const biz = businesses.find(b => b.id === notif.businessId);
+                        if (biz) {
+                           setSelectedBusiness(biz);
+                           setIsDetailOpen(true);
+                        }
+                     }}
+                     className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4 rounded-2xl shadow-2xl flex items-start gap-3 cursor-pointer hover:scale-105 transition-all animate-in slide-in-from-top"
+                  >
+                     <Bell size={20} className="shrink-0 mt-0.5 animate-bounce" />
+                     <div className="flex-1 min-w-0">
+                        <p className="font-black text-sm">{notif.businessName}</p>
+                        <p className="text-xs text-white/90 mt-1">{notif.message}</p>
+                     </div>
+                     <button 
+                        onClick={(e) => {
+                           e.stopPropagation();
+                           setNotifications(prev => prev.filter(n => n.id !== notif.id));
+                        }}
+                        className="shrink-0 text-white/70 hover:text-white"
+                     >
+                        <X size={16} />
+                     </button>
+                  </div>
+               ))}
+            </div>
+         </div>
+      )}
+
+         <header className="px-6 py-4 flex items-center justify-between z-[2000] border-b border-orange-100 bg-white/95 backdrop-blur-md h-16 shrink-0 shadow-sm">
+            <div className="flex items-center gap-2">
+               <button
+                  onClick={() => { setActiveView('explorer'); setSelectedBusiness(null); setIsSidebarOpen(true); }}
+                  className="flex items-center gap-2 group"
+                  aria-label="Go to home"
+               >
+                  <div className="w-8 h-8 bg-orange-500 rounded-lg flex items-center justify-center text-white shadow-md group-hover:scale-105 transition-transform"><Truck size={18} /></div>
+                  <h1 className="text-lg font-black tracking-tighter text-orange-900 hidden sm:block">StreetBites</h1>
+               </button>
+               <div className="flex items-center gap-1.5 ml-4 px-2.5 py-1 rounded-full bg-slate-50 border border-slate-100">
+                   <div className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-emerald-400 animate-pulse' : 'bg-slate-300'}`} />
+                   <span className="text-[8px] font-black uppercase text-slate-500">{isSyncing ? 'Saving...' : 'Synced'}</span>
+               </div>
+            </div>
         
         {activeView === 'explorer' && (
            <div className="flex-1 max-w-md mx-4 md:mx-8 flex items-center bg-orange-50 rounded-2xl px-4 py-2 border border-orange-100 transition-all focus-within:ring-2 ring-orange-200">
               <Search size={16} className="text-orange-300 mr-2" />
-              <input type="text" placeholder="Find tacos or coffee..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent text-xs font-bold w-full outline-none" />
+              <input type="text" placeholder="Find trucks or services..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="bg-transparent text-xs font-bold w-full outline-none" />
            </div>
         )}
 
@@ -241,11 +402,116 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
                  {activeView === 'me' ? (
                     <ProfileView profile={profile} businesses={businesses} onLogout={() => setProfile(null)} onUpgrade={(t: any) => setProfile({...profile, subscriptionTier: t})} />
                  ) : activeView === 'owner' ? (
-                    <OwnerDashboard profile={profile} businesses={businesses} onUpdateStatus={(id: string, s: any) => setBusinesses(prev => prev.map(b => b.id === id ? {...b, status: s} : b))} onBecomeOwner={() => setProfile({...profile, role: UserRole.OWNER})} />
+                              <OwnerDashboard
+                                 profile={profile}
+                                 businesses={businesses}
+                                 companies={companies}
+                                 onUpdateStatus={(id: string, s: any) => setBusinesses(prev => prev.map(b => b.id === id ? {...b, status: s} : b))}
+                                 onBecomeOwner={() => setProfile({...profile, role: UserRole.OWNER})}
+                                 onAddBusiness={(data: { name: string; category: BusinessCategory | string; description?: string; imageUrl?: string; companyId?: string }) => {
+                        const weeklyHours = {
+                          mon: '8:00 AM - 8:00 PM',
+                          tue: '8:00 AM - 8:00 PM',
+                          wed: '8:00 AM - 8:00 PM',
+                          thu: '8:00 AM - 8:00 PM',
+                          fri: '8:00 AM - 9:00 PM',
+                          sat: '9:00 AM - 9:00 PM',
+                          sun: '9:00 AM - 7:00 PM',
+                        };
+
+                                    const company = data.companyId ? companies.find(c => c.id === data.companyId) : undefined;
+                                    const newBiz: Business = {
+                          id: `sb_${Date.now()}`,
+                          ownerId: profile.id,
+                                       companyId: company?.id,
+                                       companyName: company?.name,
+                          name: data.name,
+                          category: data.category,
+                          status: BusinessStatus.MODERATE,
+                          rating: 0,
+                          reviews: [],
+                          messages: [],
+                          posts: [],
+                          location: userLocation || [40.7128, -74.0060],
+                          description: data.description || 'Mobile service on the move.',
+                          imageUrl: data.imageUrl || 'https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=800&q=80',
+                          openingHours: '8:00 AM - 8:00 PM',
+                          weeklyHours,
+                          isFavorite: false,
+                          favoriteCount: 0,
+                          currentVisitors: 0,
+                          tags: [],
+                          products: [],
+                          checkedInUsers: [],
+                        };
+
+                                    setBusinesses(prev => [newBiz, ...prev]);
+                                    if (company) {
+                                       setCompanies(prev => prev.map(c => c.id === company.id ? { ...c, vehicleIds: Array.from(new Set([...(c.vehicleIds || []), newBiz.id])) } : c));
+                                    }
+                      }}
+                                 onAddCompany={(name: string) => {
+                                    const company: Company = { id: `co_${Date.now()}`, ownerId: profile.id, name, drivers: [], vehicleIds: [], scheduledLocations: [] };
+                                    setCompanies(prev => [company, ...prev]);
+                                 }}
+                                 onAddDriver={(companyId: string, driver: DriverProfile) => {
+                                    setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, drivers: [...c.drivers, driver] } : c));
+                                 }}
+                                 onAssignDriver={(businessId: string, driver: DriverProfile | null) => {
+                                    setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, driverId: driver?.id, driverName: driver?.name } : b));
+                                 }}
+                                 onUpdateCompany={(companyId: string, updates: Partial<Company>) => {
+                                    setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, ...updates } : c));
+                                 }}
+                                 onAddScheduledLocation={(companyId: string, location: ScheduledLocation) => {
+                                    setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, scheduledLocations: [...(c.scheduledLocations || []), location] } : c));
+                                    // Also add to all businesses in this company
+                                    setBusinesses(prev => prev.map(b => b.companyId === companyId ? { ...b, scheduledLocations: [...(b.scheduledLocations || []), location] } : b));
+                                 }}
+                                 onToggleAttendance={(locationId: string, userId: string) => {
+                                    setCompanies(prev => prev.map(c => ({
+                                       ...c,
+                                       scheduledLocations: (c.scheduledLocations || []).map(loc => 
+                                          loc.id === locationId 
+                                             ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                                             : loc
+                                       )
+                                    })));
+                                    setBusinesses(prev => prev.map(b => ({
+                                       ...b,
+                                       scheduledLocations: (b.scheduledLocations || []).map(loc => 
+                                          loc.id === locationId 
+                                             ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                                             : loc
+                                       )
+                                    })));
+                                 }}
+                    />
                  ) : activeView === 'feed' ? (
                     <FeedView businesses={businesses} />
                  ) : (
-                    <SocialView profile={profile} />
+                    <SocialView 
+                       profile={profile} 
+                       businesses={businesses}
+                       onToggleAttendance={(locationId: string, userId: string) => {
+                          setCompanies(prev => prev.map(c => ({
+                             ...c,
+                             scheduledLocations: (c.scheduledLocations || []).map(loc => 
+                                loc.id === locationId 
+                                   ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                                   : loc
+                             )
+                          })));
+                          setBusinesses(prev => prev.map(b => ({
+                             ...b,
+                             scheduledLocations: (b.scheduledLocations || []).map(loc => 
+                                loc.id === locationId 
+                                   ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                                   : loc
+                             )
+                          })));
+                       }}
+                    />
                  )}
               </div>
            </div>
@@ -254,10 +520,46 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
 
       {/* DETAIL MODAL */}
       {selectedBusiness && isDetailOpen && (
-        <DetailsSheet business={selectedBusiness} profile={profile} onCheckIn={(bid: string) => {
-             setBusinesses(prev => prev.map(b => b.id === bid ? { ...b, checkedInUsers: [...(b.checkedInUsers || []), profile.id] } : b));
-             setProfile(prev => prev ? {...prev, stats: {...prev.stats, visitedCount: prev.stats.visitedCount + 1, passportStamps: Array.from(new Set([...(prev.stats.passportStamps || []), bid]))}} : null);
-          }} onClose={() => setIsDetailOpen(false)} />
+        <DetailsSheet 
+           business={selectedBusiness} 
+           profile={profile} 
+           userLocation={userLocation}
+           onCheckIn={(bid: string) => {
+              setBusinesses(prev => prev.map(b => b.id === bid ? { ...b, checkedInUsers: [...(b.checkedInUsers || []), profile.id] } : b));
+              setProfile(prev => prev ? {...prev, stats: {...prev.stats, visitedCount: prev.stats.visitedCount + 1, passportStamps: Array.from(new Set([...(prev.stats.passportStamps || []), bid]))}} : null);
+           }} 
+           onToggleAttendance={(locationId: string, userId: string) => {
+              setCompanies(prev => prev.map(c => ({
+                 ...c,
+                 scheduledLocations: (c.scheduledLocations || []).map(loc => 
+                    loc.id === locationId 
+                       ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                       : loc
+                 )
+              })));
+              setBusinesses(prev => prev.map(b => ({
+                 ...b,
+                 scheduledLocations: (b.scheduledLocations || []).map(loc => 
+                    loc.id === locationId 
+                       ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                       : loc
+                 )
+              })));
+           }}
+           onToggleFollow={(bid: string) => {
+              setProfile(prev => {
+                 if (!prev) return prev;
+                 const isFollowing = prev.following.includes(bid);
+                 return {
+                    ...prev,
+                    following: isFollowing 
+                       ? prev.following.filter(id => id !== bid)
+                       : [...prev.following, bid]
+                 };
+              });
+           }}
+           onClose={() => setIsDetailOpen(false)} 
+        />
       )}
 
       {/* FOOTER NAV */}
@@ -276,7 +578,9 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
 
 const ProfileView: React.FC<any> = ({ profile, businesses, onLogout, onUpgrade }) => {
    const isPlus = profile.subscriptionTier !== SubscriptionTier.FREE;
-   const [showPairing, setShowPairing] = useState(false);
+   const [showSettings, setShowSettings] = useState(false);
+   const [gpsEnabled, setGpsEnabled] = useState(true);
+   const [gpsInterval, setGpsInterval] = useState(30);
 
    return (
       <div className="space-y-12 animate-in fade-in max-w-2xl mx-auto">
@@ -294,39 +598,6 @@ const ProfileView: React.FC<any> = ({ profile, businesses, onLogout, onUpgrade }
             </div>
          </div>
 
-         {/* PAIRING TOOLS (GITHub/PC TO MOBILE) */}
-         <div className="bg-emerald-50 p-8 rounded-[3rem] border border-emerald-100 space-y-6">
-            <div className="flex justify-between items-center">
-               <h3 className="text-sm font-black text-emerald-950 uppercase tracking-widest flex items-center gap-2"><Smartphone size={18}/> Mobile Pair</h3>
-               <button onClick={() => setShowPairing(!showPairing)} className="text-[9px] font-black text-emerald-600 bg-white px-3 py-1 rounded-full shadow-sm">
-                  {showPairing ? 'Hide' : 'Show Instructions'}
-               </button>
-            </div>
-            {showPairing && (
-               <div className="space-y-6 animate-in zoom-in-95">
-                  <p className="text-xs font-medium text-emerald-800/70 leading-relaxed italic">"Once you deploy this code to **GitHub Pages** or **Vercel**, copy the link below and open it on your phone to see your fleet live!"</p>
-                  <div className="bg-white p-5 rounded-3xl space-y-4 border border-emerald-100 shadow-inner">
-                     <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black text-slate-400 uppercase">App Sync ID</span>
-                        <code className="text-xs font-black text-emerald-600">{profile.id}</code>
-                     </div>
-                     <button 
-                        onClick={() => { navigator.clipboard.writeText(window.location.href); alert("App Link Copied!"); }}
-                        className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-black uppercase text-[10px] flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"
-                     >
-                        <LinkIcon size={14}/> Copy App Link
-                     </button>
-                  </div>
-                  <div className="flex flex-col items-center gap-4 py-4">
-                     <div className="w-32 h-32 bg-white rounded-3xl border-4 border-emerald-100 flex items-center justify-center">
-                        <QrCode size={80} className="text-emerald-300 opacity-50"/>
-                     </div>
-                     <span className="text-[8px] font-black text-emerald-600 uppercase">Scan to Open on Phone</span>
-                  </div>
-               </div>
-            )}
-         </div>
-
          <div className="bg-slate-50 p-8 rounded-[3rem] border border-slate-200 space-y-6">
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><MapPin size={18} className="text-orange-400"/> Street Passport</h3>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
@@ -341,16 +612,91 @@ const ProfileView: React.FC<any> = ({ profile, businesses, onLogout, onUpgrade }
             </div>
          </div>
 
-         <div className="pt-8 flex gap-4">
-            <button className="flex-1 py-6 bg-slate-50 text-slate-600 rounded-[2rem] font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors"><Settings size={18}/> Settings</button>
+             <div className="pt-8 flex gap-4">
+                  <button onClick={() => setShowSettings(true)} className="flex-1 py-6 bg-slate-50 text-slate-600 rounded-[2rem] font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-slate-100 transition-colors"><Settings size={18}/> Settings</button>
             <button onClick={onLogout} className="flex-1 py-6 bg-red-50 text-red-500 rounded-[2rem] font-black uppercase text-xs flex items-center justify-center gap-2 hover:bg-red-100 transition-colors"><LogOut size={18}/> Sign Out</button>
          </div>
+
+             {showSettings && (
+                <div className="fixed inset-0 z-[6000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+                   <div className="bg-white w-full max-w-xl rounded-[3rem] shadow-2xl p-8 space-y-6">
+                      <div className="flex items-center justify-between">
+                         <h2 className="text-2xl font-black text-slate-900">Settings</h2>
+                         <button onClick={() => setShowSettings(false)} className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">✕</button>
+                      </div>
+
+                      <div className="space-y-4">
+                         <div className="flex items-center justify-between bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                            <div>
+                               <p className="font-black text-slate-800 text-sm">GPS Tracking</p>
+                               <p className="text-xs text-slate-400">Enable live location tracking</p>
+                            </div>
+                            <button
+                               onClick={() => setGpsEnabled(!gpsEnabled)}
+                               className={`w-14 h-8 rounded-full transition-all ${gpsEnabled ? 'bg-emerald-500' : 'bg-slate-300'}`}
+                            >
+                               <div className={`w-6 h-6 bg-white rounded-full shadow-md transition-all ${gpsEnabled ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </button>
+                         </div>
+
+                         <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 space-y-2">
+                            <p className="font-black text-slate-800 text-sm">GPS Update Interval</p>
+                            <p className="text-xs text-slate-400">How often to update location</p>
+                            <div className="flex gap-2">
+                               {[15, 30, 60].map((sec) => (
+                                  <button
+                                     key={sec}
+                                     onClick={() => setGpsInterval(sec)}
+                                     className={`px-4 py-2 rounded-2xl text-xs font-black uppercase border ${gpsInterval === sec ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-slate-400 border-slate-100'}`}
+                                  >
+                                     {sec}s
+                                  </button>
+                               ))}
+                            </div>
+                         </div>
+                      </div>
+
+                      <div className="flex gap-3 pt-2">
+                         <button onClick={() => setShowSettings(false)} className="flex-1 py-4 rounded-2xl border-2 border-slate-100 font-black text-xs uppercase text-slate-500">Close</button>
+                      </div>
+                   </div>
+                </div>
+             )}
       </div>
    );
 };
 
-const OwnerDashboard: React.FC<any> = ({ profile, businesses, onUpdateStatus, onBecomeOwner }) => {
+const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdateStatus, onBecomeOwner, onAddBusiness, onAddCompany, onAddDriver, onAssignDriver, onUpdateCompany, onAddScheduledLocation, onToggleAttendance }) => {
    const myFleet = businesses.filter((b: any) => b.ownerId === profile.id);
+   const myCompanies = companies.filter((c: Company) => c.ownerId === profile.id);
+   const [showCreate, setShowCreate] = useState(false);
+   const [newName, setNewName] = useState('');
+   const [newCategory, setNewCategory] = useState<BusinessCategory | string>(BusinessCategory.FOOD_TRUCK);
+   const [newDescription, setNewDescription] = useState('');
+   const [newImageUrl, setNewImageUrl] = useState('');
+   const [newCompanyId, setNewCompanyId] = useState<string>('');
+   const [companyName, setCompanyName] = useState('');
+   const [driverName, setDriverName] = useState('');
+   const [activeCompanyId, setActiveCompanyId] = useState<string>('');
+   const [editingCompanyId, setEditingCompanyId] = useState<string>('');
+   const [showScheduleModal, setShowScheduleModal] = useState(false);
+   const [scheduleCompanyId, setScheduleCompanyId] = useState<string>('');
+   
+   // Company customization state
+   const [companyDesc, setCompanyDesc] = useState('');
+   const [companyColor, setCompanyColor] = useState('#f97316');
+   const [companyLogo, setCompanyLogo] = useState('');
+   const [companySocial, setCompanySocial] = useState({ facebook: '', instagram: '', twitter: '', website: '' });
+   
+   // Schedule creation state
+   const [scheduleDayOfWeek, setScheduleDayOfWeek] = useState<'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday'>('monday');
+   const [scheduleLocationName, setScheduleLocationName] = useState('');
+   const [scheduleAddress, setScheduleAddress] = useState('');
+   const [scheduleStartTime, setScheduleStartTime] = useState('09:00');
+   const [scheduleEndTime, setScheduleEndTime] = useState('17:00');
+   const [scheduleDescription, setScheduleDescription] = useState('');
+
+   const categoryOptions = Object.values(BusinessCategory);
    if (profile.role !== UserRole.OWNER) return (
       <div className="max-w-xl mx-auto py-20 text-center space-y-8">
          <div className="w-24 h-24 bg-slate-50 rounded-[2.5rem] flex items-center justify-center mx-auto text-slate-300"><Truck size={48}/></div>
@@ -366,16 +712,187 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, onUpdateStatus, on
             <h1 className="text-3xl font-black text-slate-900 tracking-tight">Fleet Command</h1>
             <div className="bg-emerald-50 text-emerald-600 px-4 py-2 rounded-2xl font-black text-xs flex items-center gap-2 border border-emerald-100"><Briefcase size={16}/> Business Pro</div>
          </div>
-         <div className="grid grid-cols-1 gap-6">
+             <div className="grid grid-cols-1 gap-6">
+                  <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
+                      <div className="flex items-center justify-between">
+                           <h2 className="text-lg font-black text-slate-900">Company</h2>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-3">
+                           <input
+                              value={companyName}
+                              onChange={(e) => setCompanyName(e.target.value)}
+                              placeholder="Company name"
+                              className="flex-1 px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                           />
+                           <button
+                              disabled={!companyName.trim()}
+                              onClick={() => { 
+                                 onAddCompany(companyName.trim()); 
+                                 setCompanyName(''); 
+                              }}
+                              className="px-6 py-4 rounded-2xl bg-orange-500 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                           >
+                              Create Company
+                           </button>
+                      </div>
+
+                      {myCompanies.length > 0 && (
+                         <div className="space-y-4">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Your Companies</label>
+                            {myCompanies.map((company: Company) => (
+                               <div key={company.id} className="p-5 rounded-2xl border-2 border-slate-100 space-y-4">
+                                  <div className="flex items-center justify-between">
+                                     <div className="flex items-center gap-3">
+                                        {company.color && <div className="w-4 h-4 rounded-full" style={{ backgroundColor: company.color }} />}
+                                        <h3 className="font-black text-slate-900">{company.name}</h3>
+                                     </div>
+                                     <button 
+                                        onClick={() => {
+                                           setEditingCompanyId(editingCompanyId === company.id ? '' : company.id);
+                                           if (editingCompanyId !== company.id) {
+                                              setCompanyDesc(company.description || '');
+                                              setCompanyColor(company.color || '#f97316');
+                                              setCompanyLogo(company.logoUrl || '');
+                                              setCompanySocial(company.socialMediaLinks || { facebook: '', instagram: '', twitter: '', website: '' });
+                                           }
+                                        }}
+                                        className="px-3 py-2 rounded-xl bg-slate-100 text-slate-600 text-xs font-black hover:bg-slate-200"
+                                     >
+                                        {editingCompanyId === company.id ? 'Close' : 'Edit'}
+                                     </button>
+                                  </div>
+                                  
+                                  {company.description && <p className="text-xs text-slate-600">{company.description}</p>}
+                                  
+                                  {editingCompanyId === company.id && (
+                                     <div className="space-y-4 pt-4 border-t border-slate-100">
+                                        <div className="space-y-2">
+                                           <label className="text-[9px] font-black uppercase text-slate-400">Description</label>
+                                           <textarea
+                                              value={companyDesc}
+                                              onChange={(e) => setCompanyDesc(e.target.value)}
+                                              placeholder="About your company..."
+                                              className="w-full px-4 py-3 rounded-xl border-2 border-slate-100 font-medium text-sm focus:border-orange-400 outline-none resize-none"
+                                              rows={2}
+                                           />
+                                        </div>
+                                        
+                                        <div className="space-y-2">
+                                           <label className="text-[9px] font-black uppercase text-slate-400">Brand Color</label>
+                                           <div className="flex gap-2">
+                                              {['#f97316', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444', '#f59e0b', '#06b6d4', '#ec4899'].map(color => (
+                                                 <button
+                                                    key={color}
+                                                    onClick={() => setCompanyColor(color)}
+                                                    className={`w-10 h-10 rounded-xl border-2 ${companyColor === color ? 'border-slate-900 scale-110' : 'border-slate-200'} transition-all`}
+                                                    style={{ backgroundColor: color }}
+                                                 />
+                                              ))}
+                                           </div>
+                                        </div>
+                                        
+                                        <div className="space-y-2">
+                                           <label className="text-[9px] font-black uppercase text-slate-400">Logo URL</label>
+                                           <input
+                                              value={companyLogo}
+                                              onChange={(e) => setCompanyLogo(e.target.value)}
+                                              placeholder="https://..."
+                                              className="w-full px-4 py-3 rounded-xl border-2 border-slate-100 font-medium text-sm focus:border-orange-400 outline-none"
+                                           />
+                                        </div>
+                                        
+                                        <div className="space-y-2">
+                                           <label className="text-[9px] font-black uppercase text-slate-400">Social Media</label>
+                                           <div className="grid grid-cols-2 gap-2">
+                                              <input value={companySocial.facebook} onChange={(e) => setCompanySocial({...companySocial, facebook: e.target.value})} placeholder="Facebook" className="px-3 py-2 rounded-lg border border-slate-100 text-xs" />
+                                              <input value={companySocial.instagram} onChange={(e) => setCompanySocial({...companySocial, instagram: e.target.value})} placeholder="Instagram" className="px-3 py-2 rounded-lg border border-slate-100 text-xs" />
+                                              <input value={companySocial.twitter} onChange={(e) => setCompanySocial({...companySocial, twitter: e.target.value})} placeholder="Twitter" className="px-3 py-2 rounded-lg border border-slate-100 text-xs" />
+                                              <input value={companySocial.website} onChange={(e) => setCompanySocial({...companySocial, website: e.target.value})} placeholder="Website" className="px-3 py-2 rounded-lg border border-slate-100 text-xs" />
+                                           </div>
+                                        </div>
+                                        
+                                        <button
+                                           onClick={() => {
+                                              onUpdateCompany(company.id, {
+                                                 description: companyDesc,
+                                                 color: companyColor,
+                                                 logoUrl: companyLogo,
+                                                 socialMediaLinks: companySocial
+                                              });
+                                              setEditingCompanyId('');
+                                           }}
+                                           className="w-full py-3 rounded-xl bg-orange-500 text-white font-black text-xs uppercase"
+                                        >
+                                           Save Changes
+                                        </button>
+                                     </div>
+                                  )}
+                                  
+                                  <button
+                                     onClick={() => {
+                                        setScheduleCompanyId(company.id);
+                                        setShowScheduleModal(true);
+                                     }}
+                                     className="w-full py-3 rounded-xl bg-slate-900 text-white font-black text-xs uppercase flex items-center justify-center gap-2"
+                                  >
+                                     <CalendarDays size={16} />
+                                     Weekly Schedule
+                                  </button>
+                                  
+                                  {(company.scheduledLocations || []).length > 0 && (
+                                     <div className="space-y-2">
+                                        <label className="text-[9px] font-black uppercase text-slate-400">Scheduled Locations</label>
+                                        {company.scheduledLocations?.map((loc: ScheduledLocation) => (
+                                           <div key={loc.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                                              <div className="flex justify-between items-start">
+                                                 <div>
+                                                    <p className="font-black text-slate-900 capitalize">{loc.dayOfWeek}</p>
+                                                    <p className="text-slate-600">{loc.locationName}</p>
+                                                    <p className="text-[10px] text-slate-400">{loc.startTime} - {loc.endTime}</p>
+                                                 </div>
+                                                 <div className="text-right">
+                                                    <p className="text-slate-900 font-black">{loc.attendees.length}</p>
+                                                    <p className="text-[9px] text-slate-400">attending</p>
+                                                 </div>
+                                              </div>
+                                           </div>
+                                        ))}
+                                     </div>
+                                  )}
+                               </div>
+                            ))}
+                         </div>
+                      )}
+                  </div>
+
             {myFleet.map((biz: any) => (
                <div key={biz.id} className="bg-slate-900 p-8 rounded-[3rem] text-white space-y-8 shadow-2xl relative group">
                   <div className="flex justify-between items-start">
                      <div>
                         <h3 className="text-2xl font-black mb-1 group-hover:text-orange-400 transition-colors">{biz.name}</h3>
-                        <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Driver: {biz.driverName || 'Unassigned'}</p>
+                                    <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest">Company: {biz.companyName || 'Unassigned'}</p>
+                                    <p className="text-[9px] font-black uppercase text-slate-500 tracking-widest mt-1">Driver: {biz.driverName || 'Unassigned'}</p>
                      </div>
                      <div className="w-4 h-4 rounded-full" style={{backgroundColor: STATUS_COLORS[biz.status as BusinessStatus]}}/>
                   </div>
+                           <div className="bg-white/5 rounded-2xl p-4 border border-white/10">
+                              <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Assign Driver</label>
+                              <select
+                                 value={biz.driverId || ''}
+                                 onChange={(e) => {
+                                    const companyDrivers = myCompanies.find((c: Company) => c.id === biz.companyId)?.drivers || [];
+                                    const driver = companyDrivers.find((d: DriverProfile) => d.id === e.target.value) || null;
+                                    onAssignDriver(biz.id, driver);
+                                 }}
+                                 className="mt-2 w-full px-4 py-3 rounded-xl bg-slate-900 text-white border border-white/10 text-xs font-bold"
+                              >
+                                 <option value="">Unassigned</option>
+                                 {(myCompanies.find((c: Company) => c.id === biz.companyId)?.drivers || []).map((d: DriverProfile) => (
+                                    <option key={d.id} value={d.id}>{d.name}</option>
+                                 ))}
+                              </select>
+                           </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                      {[BusinessStatus.BUSY, BusinessStatus.MODERATE, BusinessStatus.EMPTY, BusinessStatus.OFFLINE].map(s => (
                         <button key={s} onClick={() => onUpdateStatus(biz.id, s)} className={`p-4 rounded-2xl border-2 transition-all text-[9px] font-black uppercase flex flex-col items-center gap-2 ${biz.status === s ? 'border-orange-500 bg-orange-500 text-white' : 'border-white/5 bg-white/5 text-slate-400'}`}>
@@ -386,10 +903,240 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, onUpdateStatus, on
                   </div>
                </div>
             ))}
-            <button className="h-40 border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center gap-4 text-slate-300 hover:text-orange-400 hover:border-orange-100 transition-all group">
+            <button onClick={() => setShowCreate(true)} className="h-40 border-4 border-dashed border-slate-100 rounded-[3rem] flex flex-col items-center justify-center gap-4 text-slate-300 hover:text-orange-400 hover:border-orange-100 transition-all group">
                <Plus size={32}/>
                <span className="font-black uppercase text-[10px] tracking-widest">Add New Fleet Vehicle</span>
             </button>
+         </div>
+
+         {showCreate && (
+            <div className="fixed inset-0 z-[6000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+               <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 space-y-6">
+                  <div className="flex items-center justify-between">
+                     <h2 className="text-2xl font-black text-slate-900">Create Fleet Vehicle</h2>
+                     <button onClick={() => setShowCreate(false)} className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">✕</button>
+                  </div>
+
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Business Name</label>
+                     <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Mobile Auto Care" className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" />
+                  </div>
+
+                           <div className="space-y-4">
+                               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Company</label>
+                               <select
+                                  value={newCompanyId}
+                                  onChange={(e) => setNewCompanyId(e.target.value)}
+                                  className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                               >
+                                  <option value="">No company</option>
+                                  {myCompanies.map((c: Company) => (
+                                     <option key={c.id} value={c.id}>{c.name}</option>
+                                  ))}
+                               </select>
+                           </div>
+
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Map Icon</label>
+                     <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+                        {categoryOptions.map((cat) => (
+                           <button key={cat} onClick={() => setNewCategory(cat)} className={`p-3 rounded-2xl border-2 flex items-center justify-center transition-all ${newCategory === cat ? 'border-orange-500 bg-orange-50' : 'border-slate-100 bg-white'}`}>
+                              <div className={`text-orange-500 ${newCategory === cat ? '' : 'opacity-60'}`}>{CATEGORY_ICONS[cat]}</div>
+                           </button>
+                        ))}
+                     </div>
+                  </div>
+
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Description (optional)</label>
+                     <input value={newDescription} onChange={(e) => setNewDescription(e.target.value)} placeholder="On-the-go services across the city" className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" />
+                  </div>
+
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Image URL (optional)</label>
+                     <input value={newImageUrl} onChange={(e) => setNewImageUrl(e.target.value)} placeholder="https://..." className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" />
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                     <button onClick={() => setShowCreate(false)} className="flex-1 py-4 rounded-2xl border-2 border-slate-100 font-black text-xs uppercase text-slate-500">Cancel</button>
+                     <button
+                        disabled={!newName.trim()}
+                        onClick={() => {
+                           onAddBusiness({ name: newName.trim(), category: newCategory, description: newDescription.trim(), imageUrl: newImageUrl.trim(), companyId: newCompanyId || undefined });
+                           setShowCreate(false);
+                           setNewName('');
+                           setNewDescription('');
+                           setNewImageUrl('');
+                           setNewCompanyId('');
+                        }}
+                        className="flex-1 py-4 rounded-2xl bg-orange-500 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                     >
+                        Create Vehicle
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+         
+         {showScheduleModal && (
+            <div className="fixed inset-0 z-[6000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+               <div className="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-8 space-y-6 max-h-[90vh] overflow-y-auto">
+                  <div className="flex items-center justify-between">
+                     <h2 className="text-2xl font-black text-slate-900">Add Scheduled Location</h2>
+                     <button onClick={() => setShowScheduleModal(false)} className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">✕</button>
+                  </div>
+                  
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Day of Week</label>
+                     <select
+                        value={scheduleDayOfWeek}
+                        onChange={(e) => setScheduleDayOfWeek(e.target.value as any)}
+                        className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                     >
+                        <option value="monday">Monday</option>
+                        <option value="tuesday">Tuesday</option>
+                        <option value="wednesday">Wednesday</option>
+                        <option value="thursday">Thursday</option>
+                        <option value="friday">Friday</option>
+                        <option value="saturday">Saturday</option>
+                        <option value="sunday">Sunday</option>
+                     </select>
+                  </div>
+                  
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Location Name</label>
+                     <input 
+                        value={scheduleLocationName} 
+                        onChange={(e) => setScheduleLocationName(e.target.value)} 
+                        placeholder="e.g. Downtown Plaza" 
+                        className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" 
+                     />
+                  </div>
+                  
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Address</label>
+                     <input 
+                        value={scheduleAddress} 
+                        onChange={(e) => setScheduleAddress(e.target.value)} 
+                        placeholder="123 Main St, City" 
+                        className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" 
+                     />
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                     <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Start Time</label>
+                        <input 
+                           type="time" 
+                           value={scheduleStartTime} 
+                           onChange={(e) => setScheduleStartTime(e.target.value)} 
+                           className="w-full px-4 py-3 rounded-xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" 
+                        />
+                     </div>
+                     <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">End Time</label>
+                        <input 
+                           type="time" 
+                           value={scheduleEndTime} 
+                           onChange={(e) => setScheduleEndTime(e.target.value)} 
+                           className="w-full px-4 py-3 rounded-xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none" 
+                        />
+                     </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Description (optional)</label>
+                     <textarea
+                        value={scheduleDescription}
+                        onChange={(e) => setScheduleDescription(e.target.value)}
+                        placeholder="Additional details..."
+                        className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-medium text-sm focus:border-orange-400 outline-none resize-none"
+                        rows={3}
+                     />
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                     <button onClick={() => setShowScheduleModal(false)} className="flex-1 py-4 rounded-2xl border-2 border-slate-100 font-black text-xs uppercase text-slate-500">Cancel</button>
+                     <button
+                        disabled={!scheduleLocationName.trim() || !scheduleAddress.trim()}
+                        onClick={() => {
+                           onAddScheduledLocation(scheduleCompanyId, {
+                              id: `sched_${Date.now()}`,
+                              companyId: scheduleCompanyId,
+                              dayOfWeek: scheduleDayOfWeek,
+                              locationName: scheduleLocationName.trim(),
+                              address: scheduleAddress.trim(),
+                              startTime: scheduleStartTime,
+                              endTime: scheduleEndTime,
+                              description: scheduleDescription.trim(),
+                              attendees: []
+                           });
+                           setShowScheduleModal(false);
+                           setScheduleLocationName('');
+                           setScheduleAddress('');
+                           setScheduleDescription('');
+                           setScheduleStartTime('09:00');
+                           setScheduleEndTime('17:00');
+                        }}
+                        className="flex-1 py-4 rounded-2xl bg-orange-500 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                     >
+                        Add Schedule
+                     </button>
+                  </div>
+               </div>
+            </div>
+         )}
+         
+         <div className="mt-10 bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
+            <h2 className="text-lg font-black text-slate-900">Manage Drivers</h2>
+            
+            <div className="space-y-4">
+               <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select Company</label>
+               <select
+                  value={activeCompanyId}
+                  onChange={(e) => setActiveCompanyId(e.target.value)}
+                  className="w-full px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+               >
+                  <option value="">Choose company</option>
+                  {myCompanies.map((c: Company) => (
+                     <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+               </select>
+            </div>
+            
+            {activeCompanyId && (
+               <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                     <h3 className="text-sm font-black text-slate-900">Drivers</h3>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-3">
+                     <input
+                        value={driverName}
+                        onChange={(e) => setDriverName(e.target.value)}
+                        placeholder="Driver name"
+                        className="flex-1 px-5 py-4 rounded-2xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                     />
+                     <button
+                        disabled={!driverName.trim()}
+                        onClick={() => {
+                           onAddDriver(activeCompanyId, { id: `drv_${Date.now()}`, name: driverName.trim() });
+                           setDriverName('');
+                        }}
+                        className="px-6 py-4 rounded-2xl bg-slate-900 text-white font-black text-xs uppercase shadow-lg disabled:opacity-50"
+                     >
+                        Add Driver
+                     </button>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                     {(myCompanies.find((c: Company) => c.id === activeCompanyId)?.drivers || []).map((d: DriverProfile) => (
+                        <div key={d.id} className="px-3 py-2 rounded-full bg-slate-50 border border-slate-100 text-xs font-black text-slate-600">
+                           {d.name}
+                        </div>
+                     ))}
+                  </div>
+               </div>
+            )}
          </div>
       </div>
    );
@@ -413,26 +1160,114 @@ const FeedView: React.FC<any> = ({ businesses }) => (
    </div>
 );
 
-const SocialView: React.FC<any> = ({ profile }) => (
-   <div className="space-y-10 animate-in fade-in max-w-2xl mx-auto">
-      <div className="flex justify-between items-center"><h2 className="text-3xl font-black text-slate-900 tracking-tight">Social Circle</h2><span className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl font-black text-xs">{profile.friends.length} Friends</span></div>
-      <div className="grid grid-cols-1 gap-4">
-         {profile.friends.map((fId: string) => (
-            <div key={fId} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex items-center justify-between group hover:border-indigo-200 transition-all">
-               <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 bg-white rounded-[1.5rem] flex items-center justify-center text-indigo-600 font-black shadow-sm group-hover:scale-110 transition-transform">F</div>
-                  <div><p className="font-black text-slate-800">Friend_{fId.slice(-4)}</p><p className="text-[9px] font-bold text-green-500 uppercase tracking-widest">Online Now</p></div>
+const SocialView: React.FC<any> = ({ profile, businesses, onToggleAttendance }) => {
+   const followedBusinesses = businesses.filter((b: Business) => profile.following.includes(b.id));
+   const upcomingEvents: Array<{ business: Business; location: ScheduledLocation }> = [];
+   
+   followedBusinesses.forEach((biz: Business) => {
+      (biz.scheduledLocations || []).forEach((loc: ScheduledLocation) => {
+         upcomingEvents.push({ business: biz, location: loc });
+      });
+   });
+   
+   // Sort by day of week
+   const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+   upcomingEvents.sort((a, b) => dayOrder.indexOf(a.location.dayOfWeek) - dayOrder.indexOf(b.location.dayOfWeek));
+   
+   return (
+      <div className="space-y-10 animate-in fade-in max-w-2xl mx-auto">
+         <div className="flex justify-between items-center">
+            <h2 className="text-3xl font-black text-slate-900 tracking-tight">Social Circle</h2>
+            <span className="bg-indigo-50 text-indigo-600 px-4 py-2 rounded-2xl font-black text-xs">{profile.friends.length} Friends</span>
+         </div>
+         
+         {upcomingEvents.length > 0 && (
+            <div className="space-y-6">
+               <div className="flex items-center gap-2">
+                  <CalendarDays size={20} className="text-orange-500" />
+                  <h3 className="text-lg font-black text-slate-900">Upcoming Events</h3>
+                  <span className="bg-orange-50 text-orange-600 px-2 py-1 rounded-lg font-black text-[10px]">{upcomingEvents.length} Events</span>
                </div>
-               <button className="bg-indigo-600 text-white p-4 rounded-2xl shadow-lg active:scale-90 transition-all hover:bg-indigo-700"><MessageSquare size={20}/></button>
+               <div className="grid grid-cols-1 gap-4">
+                  {upcomingEvents.map(({ business, location }) => {
+                     const isAttending = location.attendees.includes(profile.id);
+                     return (
+                        <div key={`${business.id}-${location.id}`} className="bg-gradient-to-br from-orange-50 to-white p-6 rounded-[2.5rem] border-2 border-orange-100 space-y-4 hover:shadow-lg transition-all">
+                           <div className="flex items-start gap-4">
+                              <img src={business.imageUrl} className="w-16 h-16 rounded-2xl object-cover shadow-md" />
+                              <div className="flex-1 min-w-0">
+                                 <p className="font-black text-slate-900 text-sm">{business.name}</p>
+                                 <p className="text-xs text-slate-600 mt-1">{business.companyName || 'Independent'}</p>
+                                 <p className="text-lg font-black text-orange-500 capitalize mt-2">{location.dayOfWeek}</p>
+                              </div>
+                              <div className="bg-white px-3 py-2 rounded-xl border border-slate-200 shadow-sm">
+                                 <p className="text-lg font-black text-orange-500">{location.attendees.length}</p>
+                                 <p className="text-[9px] font-black uppercase text-slate-400">Going</p>
+                              </div>
+                           </div>
+                           
+                           <div className="bg-white/80 p-4 rounded-2xl border border-orange-100 space-y-2">
+                              <div className="flex items-center gap-2 text-slate-700">
+                                 <MapPin size={14} className="text-orange-500" />
+                                 <p className="text-sm font-bold">{location.locationName}</p>
+                              </div>
+                              <p className="text-xs text-slate-500 pl-6">{location.address}</p>
+                              <div className="flex items-center gap-2 text-slate-600 pl-6">
+                                 <Clock size={12} className="text-orange-400" />
+                                 <p className="text-xs font-black">{location.startTime} - {location.endTime}</p>
+                              </div>
+                              {location.description && (
+                                 <p className="text-xs text-slate-600 pl-6 italic mt-2">"{location.description}"</p>
+                              )}
+                           </div>
+                           
+                           <button
+                              onClick={() => onToggleAttendance && onToggleAttendance(location.id, profile.id)}
+                              className={`w-full py-4 rounded-2xl font-black text-xs uppercase transition-all flex items-center justify-center gap-2 shadow-md active:scale-95 ${
+                                 isAttending 
+                                    ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white' 
+                                    : 'bg-gradient-to-r from-orange-500 to-orange-600 text-white hover:from-orange-600 hover:to-orange-700'
+                              }`}
+                           >
+                              {isAttending ? <><Check size={16} /> You're Going!</> : <><Users size={16} /> I'll Be There</>}
+                           </button>
+                        </div>
+                     );
+                  })}
+               </div>
             </div>
-         ))}
+         )}
+         
+         <div className="grid grid-cols-1 gap-4">
+            <h3 className="text-lg font-black text-slate-900">Your Friends</h3>
+            {profile.friends.map((fId: string) => (
+               <div key={fId} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 flex items-center justify-between group hover:border-indigo-200 transition-all">
+                  <div className="flex items-center gap-4">
+                     <div className="w-14 h-14 bg-white rounded-[1.5rem] flex items-center justify-center text-indigo-600 font-black shadow-sm group-hover:scale-110 transition-transform">F</div>
+                     <div><p className="font-black text-slate-800">Friend_{fId.slice(-4)}</p><p className="text-[9px] font-bold text-green-500 uppercase tracking-widest">Online Now</p></div>
+                  </div>
+                  <button className="bg-indigo-600 text-white p-4 rounded-2xl shadow-lg active:scale-90 transition-all hover:bg-indigo-700"><MessageSquare size={20}/></button>
+               </div>
+            ))}
+         </div>
       </div>
-   </div>
-);
+   );
+};
 
-const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose }) => {
+const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose, onToggleAttendance, onToggleFollow, userLocation }) => {
    const alreadyCheckedIn = business.checkedInUsers?.includes(profile.id);
+   const isFollowing = profile.following.includes(business.id);
    const [tab, setTab] = useState<'info' | 'menu' | 'schedule'>('info');
+   
+   // Calculate distance
+   const distance = userLocation ? calculateDistance(
+      userLocation[0], userLocation[1],
+      business.location[0], business.location[1]
+   ) : null;
+   
+   const canCheckIn = distance !== null && distance <= CHECK_IN_RADIUS && !alreadyCheckedIn;
+   const tooFar = distance !== null && distance > CHECK_IN_RADIUS;
+   
    return (
       <div className="fixed inset-0 z-[5000] flex flex-col justify-end items-center bg-black/40 backdrop-blur-sm p-0 sm:p-4 pointer-events-none">
          <div className="pointer-events-auto bg-white w-full md:w-[550px] md:h-[92%] rounded-t-[3.5rem] md:rounded-[3.5rem] shadow-2xl flex flex-col animate-in slide-in-from-bottom duration-300 h-[95dvh] overflow-hidden">
@@ -441,12 +1276,28 @@ const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose }) 
                <img src={business.imageUrl} className="w-full h-full object-cover" />
                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                <button onClick={onClose} className="absolute top-6 left-6 w-12 h-12 bg-black/30 backdrop-blur-xl text-white rounded-2xl flex items-center justify-center shadow-lg"><ChevronDown size={28} /></button>
-               <div className="absolute bottom-6 left-8 right-8 text-white">
-                  <h3 className="text-4xl font-black tracking-tighter drop-shadow-lg leading-tight">{business.name}</h3>
+               {distance !== null && (
+                  <div className="absolute top-6 right-6 bg-black/30 backdrop-blur-xl text-white px-4 py-2 rounded-2xl flex items-center gap-2 font-black text-xs">
+                     <Navigation2 size={14} />
+                     {distance < 1000 ? `${Math.round(distance)}m` : `${(distance / 1000).toFixed(1)}km`}
+                  </div>
+               )}
+               <div className="absolute bottom-6 left-8 right-8">
+                  <h3 className="text-4xl font-black tracking-tighter drop-shadow-lg leading-tight text-white">{business.name}</h3>
+                  <button
+                     onClick={() => onToggleFollow(business.id)}
+                     className={`mt-3 px-4 py-2 rounded-2xl font-black text-xs uppercase flex items-center gap-2 transition-all shadow-lg ${
+                        isFollowing 
+                           ? 'bg-green-500 text-white' 
+                           : 'bg-white/90 text-slate-800 hover:bg-white'
+                     }`}
+                  >
+                     {isFollowing ? <><Check size={14} /> Following</> : <><Bell size={14} /> Follow for Updates</>}
+                  </button>
                </div>
             </div>
             <div className="flex px-8 py-4 gap-4 border-b border-orange-50 bg-white sticky top-0 z-10">
-               {[{id:'info', label:'Wall', icon:<Info size={14}/>}, {id:'menu', label:'Menu', icon:<ChefHat size={14}/>}, {id:'schedule', label:'Route', icon:<CalendarDays size={14}/>}].map(t => (
+               {[{id:'info', label:'Wall', icon:<Info size={14}/>}, {id:'menu', label:'Menu', icon:<ChefHat size={14}/>}, {id:'schedule', label:'Schedule', icon:<CalendarDays size={14}/>}].map(t => (
                  <button key={t.id} onClick={() => setTab(t.id as any)} className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-2xl text-[10px] font-black uppercase transition-all ${tab === t.id ? 'bg-orange-500 text-white shadow-md' : 'bg-slate-50 text-slate-400'}`}>
                    {t.icon} {t.label}
                  </button>
@@ -455,7 +1306,26 @@ const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose }) 
             <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scroll bg-white">
                {tab === 'info' && (
                  <div className="space-y-8 animate-in fade-in">
-                    {!alreadyCheckedIn ? <button onClick={() => onCheckIn(business.id)} className="w-full bg-indigo-600 text-white py-6 rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">Check-In & Get Stamp</button> : <div className="bg-green-50 p-6 rounded-3xl border border-green-100 flex items-center justify-center gap-4"><Check size={24} className="text-green-500" /><span className="font-black text-green-800 text-xs uppercase">Stamp Earned!</span></div>}
+                    {!alreadyCheckedIn ? (
+                       canCheckIn ? (
+                          <button onClick={() => onCheckIn(business.id)} className="w-full bg-indigo-600 text-white py-6 rounded-3xl font-black uppercase text-xs tracking-widest shadow-xl flex items-center justify-center gap-3 active:scale-95 transition-all">
+                             <Check size={20} /> Check-In & Get Stamp
+                          </button>
+                       ) : tooFar ? (
+                          <div className="w-full bg-amber-50 border-2 border-amber-200 text-amber-800 py-6 rounded-3xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3">
+                             <MapPin size={20} /> Too Far Away ({Math.round(distance!)}m) - Must be within {CHECK_IN_RADIUS}m
+                          </div>
+                       ) : (
+                          <div className="w-full bg-slate-100 border-2 border-slate-200 text-slate-600 py-6 rounded-3xl font-black uppercase text-xs tracking-widest flex items-center justify-center gap-3">
+                             <Navigation2 size={20} /> Enable GPS to Check In
+                          </div>
+                       )
+                    ) : (
+                       <div className="bg-green-50 p-6 rounded-3xl border border-green-100 flex items-center justify-center gap-4">
+                          <Check size={24} className="text-green-500" />
+                          <span className="font-black text-green-800 text-xs uppercase">Stamp Earned!</span>
+                       </div>
+                    )}
                     <div className="space-y-4">
                        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">About</h4>
                        <p className="text-sm font-medium text-slate-600 leading-relaxed bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 italic">"{business.description}"</p>
@@ -474,16 +1344,65 @@ const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose }) 
                  </div>
                )}
                {tab === 'schedule' && (
-                 <div className="relative pl-8 space-y-8 before:content-[''] before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-[2px] before:bg-orange-100 pb-20 animate-in fade-in">
-                    {business.route?.map((step: any) => (
-                       <div key={step.id} className={`relative ${step.isCurrent ? 'scale-105' : 'opacity-60'}`}>
-                          <div className={`absolute -left-[23px] top-1 w-[12px] h-[12px] rounded-full border-2 border-white ${step.isCurrent ? 'bg-orange-500 ring-4 ring-orange-100' : 'bg-orange-200'}`} />
-                          <div className={`p-6 rounded-[2.5rem] border transition-all ${step.isCurrent ? 'bg-orange-50 border-orange-200 shadow-md' : 'bg-white border-slate-100'}`}>
-                             <p className="text-xs font-black text-slate-800">{step.locationName}</p>
-                             <p className="text-[10px] font-bold text-orange-400 uppercase mt-1 flex items-center gap-1"><Clock size={10}/> {step.time}</p>
-                          </div>
+                 <div className="space-y-6 pb-20 animate-in fade-in">
+                    {(business.scheduledLocations || []).length === 0 && business.route && (
+                       <div className="relative pl-8 space-y-8 before:content-[''] before:absolute before:left-[15px] before:top-2 before:bottom-2 before:w-[2px] before:bg-orange-100">
+                          {business.route?.map((step: any) => (
+                             <div key={step.id} className={`relative ${step.isCurrent ? 'scale-105' : 'opacity-60'}`}>
+                                <div className={`absolute -left-[23px] top-1 w-[12px] h-[12px] rounded-full border-2 border-white ${step.isCurrent ? 'bg-orange-500 ring-4 ring-orange-100' : 'bg-orange-200'}`} />
+                                <div className={`p-6 rounded-[2.5rem] border transition-all ${step.isCurrent ? 'bg-orange-50 border-orange-200 shadow-md' : 'bg-white border-slate-100'}`}>
+                                   <p className="text-xs font-black text-slate-800">{step.locationName}</p>
+                                   <p className="text-[10px] font-bold text-orange-400 uppercase mt-1 flex items-center gap-1"><Clock size={10}/> {step.time}</p>
+                                </div>
+                             </div>
+                          ))}
                        </div>
-                    ))}
+                    )}
+                    {(business.scheduledLocations || []).length > 0 && (
+                       <div className="space-y-4">
+                          <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Weekly Schedule</h4>
+                          {(business.scheduledLocations || []).map((loc: ScheduledLocation) => {
+                             const isAttending = loc.attendees.includes(profile.id);
+                             return (
+                                <div key={loc.id} className="p-6 rounded-[2.5rem] border border-slate-100 bg-slate-50 space-y-4">
+                                   <div className="flex justify-between items-start">
+                                      <div>
+                                         <p className="text-lg font-black text-slate-900 capitalize">{loc.dayOfWeek}</p>
+                                         <p className="text-sm font-bold text-slate-700 mt-1">{loc.locationName}</p>
+                                         <p className="text-xs text-slate-500 mt-1">{loc.address}</p>
+                                         <p className="text-xs font-black text-orange-500 mt-2 flex items-center gap-1">
+                                            <Clock size={12} /> {loc.startTime} - {loc.endTime}
+                                         </p>
+                                         {loc.description && <p className="text-xs text-slate-600 mt-2 italic">{loc.description}</p>}
+                                      </div>
+                                      <div className="text-right">
+                                         <div className="bg-white px-3 py-2 rounded-xl border border-slate-200">
+                                            <p className="text-xl font-black text-orange-500">{loc.attendees.length}</p>
+                                            <p className="text-[9px] font-black uppercase text-slate-400">Going</p>
+                                         </div>
+                                      </div>
+                                   </div>
+                                   <button
+                                      onClick={() => onToggleAttendance && onToggleAttendance(loc.id, profile.id)}
+                                      className={`w-full py-4 rounded-2xl font-black text-xs uppercase transition-all flex items-center justify-center gap-2 ${
+                                         isAttending 
+                                            ? 'bg-green-500 text-white shadow-lg' 
+                                            : 'bg-white border-2 border-slate-200 text-slate-600 hover:border-orange-400'
+                                      }`}
+                                   >
+                                      {isAttending ? <><Check size={16} /> I'll Be There</> : <><Users size={16} /> I'll Be There</>}
+                                   </button>
+                                </div>
+                             );
+                          })}
+                       </div>
+                    )}
+                    {(business.scheduledLocations || []).length === 0 && !business.route && (
+                       <div className="text-center py-12 text-slate-400">
+                          <CalendarDays size={48} className="mx-auto mb-4 opacity-50" />
+                          <p className="text-xs font-bold">No scheduled locations yet</p>
+                       </div>
+                    )}
                  </div>
                )}
             </div>
@@ -533,14 +1452,13 @@ const OnboardingFlow: React.FC<any> = ({ onComplete }) => {
   );
 };
 
-const MapController: React.FC<{ target: Business | null, isSidebarOpen: boolean, isMobile: boolean }> = ({ target, isSidebarOpen, isMobile }) => {
+const MapController: React.FC<{ target: Business | null, isSidebarOpen: boolean, isMobile: boolean }> = ({ target }) => {
   const map = useMap();
   useEffect(() => {
     if (target) {
-      const padding: L.PointTuple = isMobile ? [0, 200] : (isSidebarOpen ? [360, 0] : [0, 0]);
-      map.flyTo(target.location, 16, { duration: 1.2, paddingTopLeft: padding });
+         map.flyTo(target.location, 16, { duration: 1.2 });
     }
-  }, [target, map, isSidebarOpen, isMobile]);
+   }, [target, map]);
   return null;
 };
 
