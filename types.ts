@@ -155,6 +155,10 @@ export interface DriverProfile {
   id: string;
   name: string;
   phone?: string;
+  status?: 'online' | 'offline' | 'on-delivery' | 'on-break';
+  location?: [number, number]; // Latitude, longitude
+  lastUpdated?: number; // Timestamp
+  vehicleId?: string; // Currently assigned vehicle
 }
 
 export interface ScheduledLocation {

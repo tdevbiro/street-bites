@@ -117,21 +117,35 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
 
   useEffect(() => {
       const init = async () => {
-         const biz = await StreetBitesAPI.fetchBusinesses();
-         const comps = await StreetBitesAPI.fetchCompanies();
-         setBusinesses(biz);
-         setCompanies(comps);
-         setProfile(initialProfile);
-         setIsInitialLoading(false);
+         try {
+            const biz = await StreetBitesAPI.fetchBusinesses();
+            const comps = await StreetBitesAPI.fetchCompanies();
+            setBusinesses(biz);
+            setCompanies(comps);
+            setProfile(initialProfile || null);
+         } catch (error) {
+            console.error("Initialization error:", error);
+            setBusinesses([]);
+            setCompanies([]);
+         } finally {
+            setTimeout(() => setIsInitialLoading(false), 500);
+         }
       };
-    init();
+      init();
+
+      // Safety timeout - ensure loading doesn't get stuck
+      const timeout = setTimeout(() => {
+         setIsInitialLoading(false);
+      }, 5000);
 
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition((pos) => {
         setUserLocation([pos.coords.latitude, pos.coords.longitude]);
       }, (err) => console.warn("Location error:", err), { enableHighAccuracy: true });
     }
-  }, []);
+
+    return () => clearTimeout(timeout);
+  }, [initialProfile]);
 
   useEffect(() => {
     if (!isInitialLoading) {
@@ -406,6 +420,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
                                  profile={profile}
                                  businesses={businesses}
                                  companies={companies}
+                                 userLocation={userLocation}
                                  onUpdateStatus={(id: string, s: any) => setBusinesses(prev => prev.map(b => b.id === id ? {...b, status: s} : b))}
                                  onBecomeOwner={() => setProfile({...profile, role: UserRole.OWNER})}
                                  onAddBusiness={(data: { name: string; category: BusinessCategory | string; description?: string; imageUrl?: string; companyId?: string }) => {
@@ -462,6 +477,30 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
                                  }}
                                  onUpdateCompany={(companyId: string, updates: Partial<Company>) => {
                                     setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, ...updates } : c));
+                                 }}
+                                 onUpdateDriver={(companyId: string, driverId: string, updates: Partial<DriverProfile>) => {
+                                    setCompanies(prev => prev.map(c => c.id === companyId ? {
+                                       ...c,
+                                       drivers: c.drivers.map(d => d.id === driverId ? { ...d, ...updates } : d)
+                                    } : c));
+                                 }}
+                                 onToggleAttendance={(locationId: string, userId: string) => {
+                                    setCompanies(prev => prev.map(c => ({
+                                       ...c,
+                                       scheduledLocations: (c.scheduledLocations || []).map(loc => 
+                                          loc.id === locationId 
+                                             ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                                             : loc
+                                       )
+                                    })));
+                                    setBusinesses(prev => prev.map(b => ({
+                                       ...b,
+                                       scheduledLocations: (b.scheduledLocations || []).map(loc => 
+                                          loc.id === locationId 
+                                             ? { ...loc, attendees: loc.attendees.includes(userId) ? loc.attendees.filter(id => id !== userId) : [...loc.attendees, userId] }
+                                             : loc
+                                       )
+                                    })));
                                  }}
                                  onAddScheduledLocation={(companyId: string, location: ScheduledLocation) => {
                                     setCompanies(prev => prev.map(c => c.id === companyId ? { ...c, scheduledLocations: [...(c.scheduledLocations || []), location] } : c));
@@ -666,7 +705,7 @@ const ProfileView: React.FC<any> = ({ profile, businesses, onLogout, onUpgrade }
    );
 };
 
-const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdateStatus, onBecomeOwner, onAddBusiness, onAddCompany, onAddDriver, onAssignDriver, onUpdateCompany, onAddScheduledLocation, onToggleAttendance }) => {
+const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdateStatus, onBecomeOwner, onAddBusiness, onAddCompany, onAddDriver, onAssignDriver, onUpdateCompany, onAddScheduledLocation, onToggleAttendance, userLocation, onUpdateDriver }) => {
    const myFleet = businesses.filter((b: any) => b.ownerId === profile.id);
    const myCompanies = companies.filter((c: Company) => c.ownerId === profile.id);
    const [showCreate, setShowCreate] = useState(false);
@@ -681,11 +720,14 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
    const [editingCompanyId, setEditingCompanyId] = useState<string>('');
    const [showScheduleModal, setShowScheduleModal] = useState(false);
    const [scheduleCompanyId, setScheduleCompanyId] = useState<string>('');
+   const [showDriverMap, setShowDriverMap] = useState(false);
+   const [selectedMapCompanyId, setSelectedMapCompanyId] = useState<string>('');
    
    // Company customization state
    const [companyDesc, setCompanyDesc] = useState('');
    const [companyColor, setCompanyColor] = useState('#f97316');
    const [companyLogo, setCompanyLogo] = useState('');
+   const [companyLogoFile, setCompanyLogoFile] = useState<File | null>(null);
    const [companySocial, setCompanySocial] = useState({ facebook: '', instagram: '', twitter: '', website: '' });
    
    // Schedule creation state
@@ -793,13 +835,29 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                                         </div>
                                         
                                         <div className="space-y-2">
-                                           <label className="text-[9px] font-black uppercase text-slate-400">Logo URL</label>
+                                           <label className="text-[9px] font-black uppercase text-slate-400">Logo Upload (JPG, PNG, GIF)</label>
                                            <input
-                                              value={companyLogo}
-                                              onChange={(e) => setCompanyLogo(e.target.value)}
-                                              placeholder="https://..."
+                                              type="file"
+                                              accept=".jpg,.jpeg,.png,.gif,.webp"
+                                              onChange={(e) => {
+                                                 const file = e.target.files?.[0];
+                                                 if (file) {
+                                                    setCompanyLogoFile(file);
+                                                    const reader = new FileReader();
+                                                    reader.onload = (event) => {
+                                                       setCompanyLogo(event.target?.result as string);
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                 }
+                                              }}
                                               className="w-full px-4 py-3 rounded-xl border-2 border-slate-100 font-medium text-sm focus:border-orange-400 outline-none"
                                            />
+                                           {companyLogo && (
+                                              <div className="flex items-center gap-2">
+                                                 <img src={companyLogo} alt="Company logo" className="w-12 h-12 rounded-lg object-cover" />
+                                                 <span className="text-xs text-slate-600">Logo preview</span>
+                                              </div>
+                                           )}
                                         </div>
                                         
                                         <div className="space-y-2">
@@ -838,6 +896,17 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                                   >
                                      <CalendarDays size={16} />
                                      Weekly Schedule
+                                  </button>
+                                  
+                                  <button
+                                     onClick={() => {
+                                        setSelectedMapCompanyId(company.id);
+                                        setShowDriverMap(true);
+                                     }}
+                                     className="w-full py-3 rounded-xl bg-blue-600 text-white font-black text-xs uppercase flex items-center justify-center gap-2"
+                                  >
+                                     <MapIcon2 size={16} />
+                                     Live Driver Map
                                   </button>
                                   
                                   {(company.scheduledLocations || []).length > 0 && (
@@ -1087,6 +1156,74 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
             </div>
          )}
          
+         {/* LIVE DRIVER MAP MODAL */}
+         {showDriverMap && selectedMapCompanyId && (
+            <div className="fixed inset-0 z-[6000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+               <div className="bg-white w-full max-w-4xl rounded-[3rem] shadow-2xl overflow-hidden flex flex-col h-[90vh]">
+                  <div className="flex items-center justify-between p-8 border-b border-slate-100">
+                     <h2 className="text-2xl font-black text-slate-900">Live Driver Tracking</h2>
+                     <button onClick={() => setShowDriverMap(false)} className="w-10 h-10 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center hover:bg-slate-200">✕</button>
+                  </div>
+                  
+                  <div className="flex-1 flex gap-6 p-8 overflow-hidden">
+                     {/* Map */}
+                     <div className="flex-1 rounded-3xl overflow-hidden border-2 border-slate-100 bg-slate-50">
+                        <MapContainer center={[40.7128, -74.0060]} zoom={13} zoomControl={false} className="h-full w-full">
+                           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                           {myCompanies.find(c => c.id === selectedMapCompanyId)?.drivers.map(driver => {
+                              if (!driver.location || !driver.status || driver.status === 'offline') return null;
+                              const driverIcon = L.divIcon({
+                                 className: 'driver-marker',
+                                 html: `
+                                    <div class="flex items-center justify-center w-10 h-10 rounded-full ${
+                                       driver.status === 'on-delivery' ? 'bg-red-500' : 
+                                       driver.status === 'on-break' ? 'bg-yellow-500' : 'bg-green-500'
+                                    } border-3 border-white shadow-lg">
+                                       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="white" stroke="white" stroke-width="2"><path d="M19 17h2v.5h.5v-.5h2v-2h-4.5v-1h4.5v-2h-2v-.5h-.5v.5h-2v2h-4.5V8h4.5V6h2v.5h.5v-.5h2v2h-4.5v3h4.5v2h-2v1.5h2v2"/></svg>
+                                    </div>
+                                 `,
+                                 iconSize: [40, 40],
+                                 iconAnchor: [20, 20],
+                              });
+                              return (
+                                 <Marker key={driver.id} position={driver.location} icon={driverIcon}>
+                                    <Popup>
+                                       <div className="text-xs font-bold">
+                                          <p className="font-black">{driver.name}</p>
+                                          <p className="text-slate-600 capitalize">{driver.status}</p>
+                                       </div>
+                                    </Popup>
+                                 </Marker>
+                              );
+                           })}
+                        </MapContainer>
+                     </div>
+                     
+                     {/* Driver List */}
+                     <div className="w-64 border-2 border-slate-100 rounded-3xl p-4 overflow-y-auto custom-scroll space-y-3">
+                        <h3 className="font-black text-slate-900 text-sm sticky top-0 bg-white">Drivers Online</h3>
+                        {myCompanies.find(c => c.id === selectedMapCompanyId)?.drivers.map(driver => (
+                           <div key={driver.id} className={`p-4 rounded-2xl border-2 ${
+                              driver.status === 'online' ? 'border-green-200 bg-green-50' :
+                              driver.status === 'on-delivery' ? 'border-red-200 bg-red-50' :
+                              driver.status === 'on-break' ? 'border-yellow-200 bg-yellow-50' :
+                              'border-slate-100 bg-slate-50'
+                           }`}>
+                              <p className="font-black text-slate-900 text-xs">{driver.name}</p>
+                              <p className={`text-[10px] font-black uppercase mt-1 ${
+                                 driver.status === 'online' ? 'text-green-600' :
+                                 driver.status === 'on-delivery' ? 'text-red-600' :
+                                 driver.status === 'on-break' ? 'text-yellow-600' :
+                                 'text-slate-400'
+                              }`}>{driver.status || 'Offline'}</p>
+                              {driver.phone && <p className="text-[9px] text-slate-600 mt-2">{driver.phone}</p>}
+                           </div>
+                        ))}
+                     </div>
+                  </div>
+               </div>
+            )}
+         
          <div className="mt-10 bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
             <h2 className="text-lg font-black text-slate-900">Manage Drivers</h2>
             
@@ -1137,6 +1274,7 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                   </div>
                </div>
             )}
+         </div>
          </div>
       </div>
    );
