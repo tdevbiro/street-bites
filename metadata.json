@@ -1,0 +1,7 @@
+{
+  "name": "Changed user experience added friends etc",
+  "description": "A dynamic real-time moving business tracker for food trucks and mobile vendors. Features interactive maps, status-based status icons, and AI-powered reviews.",
+  "requestFramePermissions": [
+    "geolocation"
+  ]
+}
