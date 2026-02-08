@@ -1252,8 +1252,9 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
             </div>
          )}
          
-            <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
-               <h2 className="text-lg font-black text-slate-900">Manage Drivers</h2>
+         {/* Manage Drivers Section */}
+         <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
+            <h2 className="text-lg font-black text-slate-900">Manage Drivers</h2>
                
                <div className="space-y-4">
                   <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">Select Company</label>
@@ -1394,7 +1395,6 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                      </div>
                   </div>
                )}
-            </div>
          </div>
       </div>
    );
