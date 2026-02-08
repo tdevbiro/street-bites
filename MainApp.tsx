@@ -116,6 +116,17 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   const [sortBy, setSortBy] = useState<SortOption>('recommended');
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [showOnlyFollowed, setShowOnlyFollowed] = useState(false);
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isTablet, setIsTablet] = useState(window.innerWidth >= 768 && window.innerWidth < 1024);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setIsTablet(window.innerWidth >= 768 && window.innerWidth < 1024);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
       const init = async () => {
@@ -371,7 +382,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
 
       <main className="flex-1 relative overflow-hidden flex flex-row h-full">
         {/* SIDEBAR */}
-        <aside className={`${window.innerWidth < 768 ? (isSidebarOpen && activeView === 'explorer' ? 'mobile-sheet-overlay' : 'hidden') : (isSidebarOpen ? 'w-[380px]' : 'w-0 overflow-hidden')} h-full ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-orange-100'} border-r z-30 transition-all duration-300 flex flex-col`}>
+        <aside className={`${isMobile ? (isSidebarOpen && activeView === 'explorer' ? 'mobile-sheet-overlay' : 'hidden') : (isSidebarOpen ? (isTablet ? 'w-[320px]' : 'w-[380px]') : 'w-0 overflow-hidden')} h-full ${isDarkMode ? 'bg-slate-800 border-slate-700' : 'bg-white border-orange-100'} border-r z-30 transition-all duration-300 flex flex-col`}>
           <div className="px-6 pt-6 pb-2 space-y-4 shrink-0">
              <div className="flex items-center justify-between">
                 <h2 className={`text-xl font-black ${isDarkMode ? 'text-white' : 'text-orange-950'}`}>Active Near You</h2>
@@ -400,30 +411,53 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
           
           <div className="flex-1 overflow-y-auto px-6 pb-24 space-y-3 custom-scroll pt-2">
             {filteredBusinesses.map(biz => (
-              <div key={biz.id} onClick={() => { setSelectedBusiness(biz); if(window.innerWidth < 768) setIsSidebarOpen(false); }} className={`flex items-center gap-4 p-5 rounded-[2.5rem] border transition-all cursor-pointer group ${selectedBusiness?.id === biz.id ? 'bg-orange-500 text-white shadow-xl scale-[1.02]' : (isDarkMode ? 'bg-slate-700 border-slate-600 hover:bg-slate-600' : 'bg-white border-orange-50 hover:bg-orange-50')}`}>
-                <img src={biz.imageUrl} className="w-16 h-16 rounded-2xl object-cover shadow-sm" />
+              <div key={biz.id} onClick={() => { setSelectedBusiness(biz); if(isMobile) setIsSidebarOpen(false); }} className={`relative flex items-center gap-4 p-5 rounded-[2.5rem] border transition-all cursor-pointer group overflow-hidden ${selectedBusiness?.id === biz.id ? 'bg-orange-500 text-white shadow-xl scale-[1.02]' : (isDarkMode ? 'bg-slate-700 border-slate-600 hover:bg-slate-600' : 'bg-white border-orange-50 hover:bg-orange-50 hover:shadow-lg')}`}>
+                {/* Status indicator bar */}
+                <div className="absolute left-0 top-0 bottom-0 w-1.5 rounded-l-[2.5rem]" style={{ backgroundColor: STATUS_COLORS[biz.status as BusinessStatus] }}></div>
+                <img src={biz.imageUrl} className="w-16 h-16 rounded-2xl object-cover shadow-md ring-2 ring-white/50" />
                 <div className="min-w-0 flex-1">
-                  <div className="flex justify-between items-start"><h3 className="font-black text-sm truncate">{biz.name}</h3><span className={`text-[8px] font-black ${selectedBusiness?.id === biz.id ? 'text-white' : 'text-orange-400'}`}>{biz.rating} ★</span></div>
-                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mt-0.5">{biz.category}</p>
+                  <div className="flex justify-between items-start mb-1">
+                    <h3 className="font-black text-sm truncate">{biz.name}</h3>
+                    <div className="flex items-center gap-1">
+                      <Star size={10} className={`${selectedBusiness?.id === biz.id ? 'text-yellow-200 fill-yellow-200' : 'text-orange-400 fill-orange-400'}`} />
+                      <span className={`text-[10px] font-black ${selectedBusiness?.id === biz.id ? 'text-white' : 'text-orange-500'}`}>{biz.rating}</span>
+                    </div>
+                  </div>
+                  <p className="text-[9px] font-black uppercase tracking-widest opacity-70 mb-1.5">{biz.category}</p>
+                  <div className="flex items-center gap-2 text-[8px] font-bold">
+                    <span className={`px-2 py-0.5 rounded-full ${selectedBusiness?.id === biz.id ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>{biz.status}</span>
+                    {biz.currentVisitors > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Users size={10} />
+                        {biz.currentVisitors}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                <ChevronRight size={16} />
+                <ChevronRight size={16} className="opacity-50 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
               </div>
             ))}
           </div>
         </aside>
 
         {/* MAP AREA */}
-        <section className={`flex-1 relative ${activeView !== 'explorer' ? 'hidden md:block opacity-30 pointer-events-none' : 'block'}`}>
-          <MapContainer center={[40.7128, -74.0060]} zoom={13} zoomControl={false} className="h-full w-full">
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <section className={`flex-1 relative bg-white ${activeView !== 'explorer' ? 'hidden md:block opacity-30 pointer-events-none' : 'block'}`}>
+          <MapContainer center={[40.7128, -74.0060]} zoom={13} zoomControl={true} scrollWheelZoom={true} className="h-full w-full z-10">
+            <TileLayer 
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              maxZoom={20}
+              minZoom={1}
+              subdomains={['a', 'b', 'c', 'd']}
+            />
             {businesses.map(biz => (
-              <MarkerWithPortal key={biz.id} biz={biz} profile={profile} isSelected={selectedBusiness?.id === biz.id} onClick={() => { setSelectedBusiness(biz); setIsSidebarOpen(true); }} onOpenSheet={() => setIsDetailOpen(true)} />
+              <MarkerWithPortal key={biz.id} biz={biz} profile={profile} isSelected={selectedBusiness?.id === biz.id} onClick={() => { setSelectedBusiness(biz); setIsSidebarOpen(true); setIsDetailOpen(true); }} onOpenSheet={() => setIsDetailOpen(true)} />
             ))}
             <UserLocationMarker profile={profile} location={userLocation} />
-            <MapController target={selectedBusiness} isSidebarOpen={isSidebarOpen} isMobile={window.innerWidth < 768} />
+            <MapController target={selectedBusiness} isSidebarOpen={isSidebarOpen} isMobile={isMobile} />
           </MapContainer>
           {!isSidebarOpen && activeView === 'explorer' && (
-             <button onClick={() => setIsSidebarOpen(true)} className="absolute top-6 left-6 z-50 bg-white p-4 rounded-3xl shadow-2xl border border-orange-100 font-black text-[10px] uppercase flex items-center gap-2 hover:scale-105 transition-all">
+             <button onClick={() => setIsSidebarOpen(true)} className="absolute top-6 left-6 z-50 bg-white p-4 rounded-3xl shadow-2xl border border-orange-100 font-black text-[10px] uppercase flex items-center gap-2 hover:scale-105 transition-all hover:shadow-3xl hover:border-orange-300">
                <Menu size={18}/> Discover List
              </button>
           )}
@@ -646,7 +680,7 @@ const ProfileView: React.FC<any> = ({ profile, businesses, onLogout, onUpgrade }
             <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest flex items-center gap-2"><MapPin size={18} className="text-orange-400"/> Street Passport</h3>
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-3">
                {businesses.map((b: any) => {
-                  const isUnlocked = profile.stats.passportStamps?.includes(b.id);
+                  const isUnlocked = profile?.stats?.passportStamps?.includes(b.id);
                   return (
                      <div key={b.id} className={`aspect-square rounded-2xl flex items-center justify-center transition-all ${isUnlocked ? 'bg-white shadow-md border-2 border-orange-200 scale-105 rotate-3' : 'bg-slate-200 opacity-20'}`}>
                         {isUnlocked ? <img src={b.imageUrl} className="w-full h-full object-cover rounded-2xl" /> : <Truck size={16} className="text-slate-400" />}
@@ -985,6 +1019,100 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
                <Plus size={32}/>
                <span className="font-black uppercase text-[10px] tracking-widest">Add New Fleet Vehicle</span>
             </button>
+         </div>
+
+         {/* MENU MANAGEMENT */}
+         <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-6">
+            <h2 className="text-xl font-black text-slate-900 flex items-center gap-3">
+               <Utensils size={24} className="text-orange-500" />
+               Menu Management
+            </h2>
+            {myFleet.length === 0 ? (
+               <p className="text-slate-400 text-sm">Create a business first to manage its menu</p>
+            ) : (
+               <div className="space-y-6">
+                  {myFleet.map((biz: any) => (
+                     <details key={biz.id} className="bg-slate-50 rounded-2xl border border-slate-100">
+                        <summary className="cursor-pointer p-5 font-black text-slate-900 flex items-center justify-between hover:bg-slate-100 rounded-2xl transition-colors">
+                           {biz.name}
+                           <span className="text-xs text-slate-400">{biz.products?.length || 0} items</span>
+                        </summary>
+                        <div className="p-5 pt-0 space-y-4">
+                           {biz.products?.length > 0 && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+                                 {biz.products.map((product: Product) => (
+                                    <div key={product.id} className="bg-white rounded-xl p-4 border border-slate-100 flex items-start gap-3">
+                                       {product.imageUrl && (
+                                          <img src={product.imageUrl} className="w-16 h-16 rounded-lg object-cover" alt={product.name} />
+                                       )}
+                                       <div className="flex-1 min-w-0">
+                                          <h4 className="font-black text-sm text-slate-900 truncate">{product.name}</h4>
+                                          <p className="text-orange-500 font-black text-lg">${product.price.toFixed(2)}</p>
+                                       </div>
+                                       <button 
+                                          onClick={() => {
+                                             const updated = businesses.map(b => 
+                                                b.id === biz.id 
+                                                   ? {...b, products: b.products.filter(p => p.id !== product.id)}
+                                                   : b
+                                             );
+                                             onUpdateStatus(biz.id, biz.status);
+                                          }}
+                                          className="text-red-400 hover:text-red-600"
+                                       >
+                                          <X size={16} />
+                                       </button>
+                                    </div>
+                                 ))}
+                              </div>
+                           )}
+                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <input 
+                                 type="text" 
+                                 placeholder="Item name" 
+                                 className="px-4 py-3 rounded-xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                                 id={`menu-name-${biz.id}`}
+                              />
+                              <input 
+                                 type="number" 
+                                 placeholder="Price" 
+                                 step="0.01"
+                                 className="px-4 py-3 rounded-xl border-2 border-slate-100 font-bold text-sm focus:border-orange-400 outline-none"
+                                 id={`menu-price-${biz.id}`}
+                              />
+                              <button 
+                                 onClick={() => {
+                                    const nameInput = document.getElementById(`menu-name-${biz.id}`) as HTMLInputElement;
+                                    const priceInput = document.getElementById(`menu-price-${biz.id}`) as HTMLInputElement;
+                                    const name = nameInput?.value.trim();
+                                    const price = parseFloat(priceInput?.value || '0');
+                                    
+                                    if (name && price > 0) {
+                                       const newProduct: Product = {
+                                          id: `prod-${Date.now()}`,
+                                          name,
+                                          price,
+                                          imageUrl: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=100&h=100&fit=crop'
+                                       };
+                                       const updated = businesses.map(b => 
+                                          b.id === biz.id 
+                                             ? {...b, products: [...(b.products || []), newProduct]}
+                                             : b
+                                       );
+                                       nameInput.value = '';
+                                       priceInput.value = '';
+                                    }
+                                 }}
+                                 className="px-4 py-3 rounded-xl bg-orange-500 text-white font-black text-xs uppercase shadow-lg hover:bg-orange-600 transition-colors"
+                              >
+                                 Add Item
+                              </button>
+                           </div>
+                        </div>
+                     </details>
+                  ))}
+               </div>
+            )}
          </div>
 
          {showCreate && (
@@ -1570,6 +1698,52 @@ const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose, on
                        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">About</h4>
                        <p className="text-sm font-medium text-slate-600 leading-relaxed bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 italic">"{business.description}"</p>
                     </div>
+
+                    {/* Activity Feed / Wall */}
+                    <div className="space-y-4">
+                       <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-2">
+                          <MessageSquare size={12} /> Activity Wall
+                       </h4>
+                       
+                       {/* Quick Stats */}
+                       <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-2xl border border-orange-200 text-center">
+                             <p className="text-2xl font-black text-orange-600">{business.currentVisitors}</p>
+                             <p className="text-[9px] font-black uppercase text-orange-400 tracking-wider">Now Here</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 p-4 rounded-2xl border border-indigo-200 text-center">
+                             <p className="text-2xl font-black text-indigo-600">{business.favoriteCount}</p>
+                             <p className="text-[9px] font-black uppercase text-indigo-400 tracking-wider">Favorites</p>
+                          </div>
+                          <div className="bg-gradient-to-br from-amber-50 to-amber-100 p-4 rounded-2xl border border-amber-200 text-center">
+                             <p className="text-2xl font-black text-amber-600">{business.rating}</p>
+                             <p className="text-[9px] font-black uppercase text-amber-400 tracking-wider flex items-center justify-center gap-1">
+                                <Star size={10} className="fill-current" /> Rating
+                             </p>
+                          </div>
+                       </div>
+
+                       {/* Recent Posts */}
+                       {business.posts && business.posts.length > 0 && (
+                          <div className="space-y-3">
+                             {business.posts.slice(0, 3).map((post: BusinessPost) => (
+                                <div key={post.id} className={`p-5 rounded-2xl border ${post.isImportant ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
+                                   <div className="flex items-start gap-3">
+                                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${post.isImportant ? 'bg-orange-500 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                                         {post.isImportant ? <Radio size={16} /> : <MessageSquare size={16} />}
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                         <p className="text-sm font-bold text-slate-900 leading-relaxed">{post.content}</p>
+                                         <p className="text-[10px] font-black uppercase text-slate-400 mt-2">
+                                            {new Date(post.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                                         </p>
+                                      </div>
+                                   </div>
+                                </div>
+                             ))}
+                          </div>
+                       )}
+                    </div>
                  </div>
                )}
                {tab === 'menu' && (
@@ -1704,6 +1878,7 @@ const MapController: React.FC<{ target: Business | null, isSidebarOpen: boolean,
 
 const MarkerWithPortal: React.FC<{ biz: Business, profile: UserProfile, isSelected: boolean, onClick: () => void, onOpenSheet: () => void }> = memo(({ biz, profile, isSelected, onClick, onOpenSheet }) => {
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const markerRef = useRef<any>(null);
   const icon = useMemo(() => L.divIcon({
     className: 'custom-leaflet-icon-wrapper',
     html: `<div class="marker-root-${biz.id}"></div>`,
@@ -1711,12 +1886,19 @@ const MarkerWithPortal: React.FC<{ biz: Business, profile: UserProfile, isSelect
     iconAnchor: [22, 44],
   }), [biz.id]);
 
+  useEffect(() => {
+    if (markerRef.current && isSelected) {
+      markerRef.current.openPopup();
+    }
+  }, [isSelected]);
+
   return (
     <Marker 
       position={biz.location} 
       icon={icon}
       eventHandlers={{ click: onClick }}
       ref={(ref) => {
+        markerRef.current = ref;
         if (ref) {
           const el = ref.getElement()?.querySelector(`.marker-root-${biz.id}`);
           if (el && !container) setContainer(el as HTMLDivElement);
@@ -1724,7 +1906,7 @@ const MarkerWithPortal: React.FC<{ biz: Business, profile: UserProfile, isSelect
       }}
     >
       {container && ReactDOM.createPortal(<CustomMarker business={biz} isSelected={isSelected} checkedInFriendsCount={biz.checkedInUsers?.length || 0} />, container)}
-      <Popup offset={[0, -35]} closeButton={false}>
+      <Popup offset={[0, -50]} closeButton={false} className="custom-marker-popup">
         <div className="relative p-4 bg-white rounded-[1.5rem] overflow-hidden min-w-[280px]" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-3 mb-3 pr-6">
             <img src={biz.imageUrl} className="w-14 h-14 rounded-2xl object-cover shadow-sm" />
