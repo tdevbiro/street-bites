@@ -608,7 +608,8 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
               const biz = businesses.find(b => b.id === businessId);
               if (biz) {
                  setSelectedBusiness(biz);
-                 setShowReviewForm(true);
+                 setIsDetailOpen(false);  // Close the detail sheet
+                 setShowReviewForm(true);  // Open review form
               }
            }}
            onCheckIn={(bid: string) => {
