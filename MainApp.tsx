@@ -18,6 +18,7 @@ import { Business, BusinessStatus, BusinessCategory, SortOption, UserProfile, Us
 import { MOCK_BUSINESSES, STATUS_COLORS, CATEGORY_ICONS } from './constants';
 import { CustomMarker } from './components/CustomMarker';
 import { generateAIReviewResponse, getSmartCategorySuggestion, getAISmartFilter } from './services/geminiService';
+import { ReviewComponent } from './components/ReviewComponent';
 
 // Fix Leaflet icons
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -111,6 +112,7 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
   const [activeView, setActiveView] = useState<ViewType>('explorer');
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [showReviewForm, setShowReviewForm] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 768);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('recommended');
@@ -602,6 +604,13 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
            business={selectedBusiness} 
            profile={profile} 
            userLocation={userLocation}
+           onShowReview={(businessId: string) => {
+              const biz = businesses.find(b => b.id === businessId);
+              if (biz) {
+                 setSelectedBusiness(biz);
+                 setShowReviewForm(true);
+              }
+           }}
            onCheckIn={(bid: string) => {
               setBusinesses(prev => prev.map(b => b.id === bid ? { ...b, checkedInUsers: [...(b.checkedInUsers || []), profile.id] } : b));
               setProfile(prev => prev ? {...prev, stats: {...prev.stats, visitedCount: prev.stats.visitedCount + 1, passportStamps: Array.from(new Set([...(prev.stats.passportStamps || []), bid]))}} : null);
@@ -637,6 +646,34 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
               });
            }}
            onClose={() => setIsDetailOpen(false)} 
+        />
+      )}
+
+      {/* REVIEW MODAL */}
+      {showReviewForm && selectedBusiness && (
+        <ReviewComponent
+          reviews={selectedBusiness.reviews || []}
+          businessName={selectedBusiness.name}
+          onSubmitReview={(rating: number, comment: string) => {
+            const newReview: Review = {
+              id: `review-${Date.now()}`,
+              businessId: selectedBusiness.id,
+              userId: profile?.id || 'anonymous',
+              userName: profile?.name || 'Anonymous',
+              rating,
+              comment,
+              createdAt: new Date(),
+              helpful: 0
+            };
+            setBusinesses(prev => prev.map(b => 
+              b.id === selectedBusiness.id 
+                ? { ...b, reviews: [...(b.reviews || []), newReview] }
+                : b
+            ));
+            setShowReviewForm(false);
+          }}
+          onClose={() => setShowReviewForm(false)}
+          averageRating={selectedBusiness.rating}
         />
       )}
 
@@ -1622,7 +1659,7 @@ const SocialView: React.FC<any> = ({ profile, businesses, onToggleAttendance }) 
    );
 };
 
-const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose, onToggleAttendance, onToggleFollow, userLocation }) => {
+const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose, onToggleAttendance, onToggleFollow, userLocation, onShowReview }) => {
    const alreadyCheckedIn = business.checkedInUsers?.includes(profile.id);
    const isFollowing = profile.following.includes(business.id);
    const [tab, setTab] = useState<'info' | 'menu' | 'schedule'>('info');
@@ -1698,6 +1735,14 @@ const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose, on
                        <h4 className="text-[10px] font-black uppercase text-slate-400 tracking-widest">About</h4>
                        <p className="text-sm font-medium text-slate-600 leading-relaxed bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 italic">"{business.description}"</p>
                     </div>
+
+                    {/* Review Button */}
+                    <button 
+                       onClick={() => onShowReview(business.id)}
+                       className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white py-4 rounded-3xl font-black uppercase text-xs tracking-widest shadow-lg flex items-center justify-center gap-3 transition-all active:scale-95"
+                    >
+                       <Star size={18} className="fill-white" /> Write A Review
+                    </button>
 
                     {/* Activity Feed / Wall */}
                     <div className="space-y-4">
