@@ -655,26 +655,47 @@ export const MainApp: React.FC<MainAppProps> = ({ initialProfile }) => {
         <ReviewComponent
           reviews={selectedBusiness.reviews || []}
           businessName={selectedBusiness.name}
+          businessId={selectedBusiness.id}
           onSubmitReview={(rating: number, comment: string) => {
-            const newReview: Review = {
-              id: `review-${Date.now()}`,
-              businessId: selectedBusiness.id,
-              userId: profile?.id || 'anonymous',
-              userName: profile?.name || 'Anonymous',
-              rating,
-              comment,
-              createdAt: new Date(),
-              helpful: 0
-            };
-            setBusinesses(prev => prev.map(b => 
-              b.id === selectedBusiness.id 
-                ? { ...b, reviews: [...(b.reviews || []), newReview] }
-                : b
-            ));
+            const existingReview = selectedBusiness.reviews?.find((r: Review) => r.userId === profile?.id);
+            
+            if (existingReview) {
+              // Update existing review
+              setBusinesses(prev => prev.map(b => 
+                b.id === selectedBusiness.id 
+                  ? { 
+                      ...b, 
+                      reviews: (b.reviews || []).map(r => 
+                        r.id === existingReview.id 
+                          ? { ...r, rating, comment, createdAt: new Date() }
+                          : r
+                      ) 
+                    }
+                  : b
+              ));
+            } else {
+              // Create new review
+              const newReview: Review = {
+                id: `review-${Date.now()}`,
+                businessId: selectedBusiness.id,
+                userId: profile?.id || 'anonymous',
+                userName: profile?.name || 'Anonymous',
+                rating,
+                comment,
+                createdAt: new Date(),
+                helpful: 0
+              };
+              setBusinesses(prev => prev.map(b => 
+                b.id === selectedBusiness.id 
+                  ? { ...b, reviews: [...(b.reviews || []), newReview] }
+                  : b
+              ));
+            }
             setShowReviewForm(false);
           }}
           onClose={() => setShowReviewForm(false)}
           averageRating={selectedBusiness.rating}
+          userReview={selectedBusiness.reviews?.find((r: Review) => r.userId === profile?.id)}
         />
       )}
 
@@ -1738,12 +1759,17 @@ const DetailsSheet: React.FC<any> = ({ business, profile, onCheckIn, onClose, on
                     </div>
 
                     {/* Review Button */}
-                    <button 
-                       onClick={() => onShowReview(business.id)}
-                       className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white py-4 rounded-3xl font-black uppercase text-xs tracking-widest shadow-lg flex items-center justify-center gap-3 transition-all active:scale-95"
-                    >
-                       <Star size={18} className="fill-white" /> Write A Review
-                    </button>
+                    {(() => {
+                       const userReview = business.reviews?.find((r: Review) => r.userId === profile.id);
+                       return (
+                          <button 
+                             onClick={() => onShowReview(business.id)}
+                             className={`w-full ${userReview ? 'from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700' : 'from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700'} bg-gradient-to-r text-white py-4 rounded-3xl font-black uppercase text-xs tracking-widest shadow-lg flex items-center justify-center gap-3 transition-all active:scale-95`}
+                          >
+                             <Star size={18} className="fill-white" /> {userReview ? '✏️ Change Your Review' : '⭐ Write A Review'}
+                          </button>
+                       );
+                    })()}
 
                     {/* Activity Feed / Wall */}
                     <div className="space-y-4">

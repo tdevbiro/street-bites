@@ -5,22 +5,27 @@ import { Review } from '../types';
 interface ReviewComponentProps {
   reviews: Review[];
   businessName: string;
+  businessId: string;
   onSubmitReview: (rating: number, comment: string) => void;
   onClose: () => void;
   averageRating?: number;
+  userReview?: Review; // Current user's review if exists
 }
 
 export const ReviewComponent: React.FC<ReviewComponentProps> = ({
   reviews,
   businessName,
+  businessId,
   onSubmitReview,
   onClose,
-  averageRating
+  averageRating,
+  userReview
 }) => {
-  const [rating, setRating] = useState<number>(0);
+  const [rating, setRating] = useState<number>(userReview?.rating || 0);
   const [hoveredRating, setHoveredRating] = useState<number>(0);
-  const [comment, setComment] = useState('');
+  const [comment, setComment] = useState(userReview?.comment || '');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isEditing = !!userReview;
 
   const handleSubmit = async () => {
     if (rating === 0) {
@@ -49,9 +54,12 @@ export const ReviewComponent: React.FC<ReviewComponentProps> = ({
           <div className="relative z-10 flex items-start justify-between">
             <div>
               <h1 className="text-4xl md:text-5xl font-black text-white tracking-tighter drop-shadow-lg">
-                ⭐ Review
+                {isEditing ? '✏️ Módosítsd az Értékelést' : '⭐ Review'}
               </h1>
               <p className="text-lg text-white/90 font-bold mt-2">{businessName}</p>
+              {isEditing && (
+                <p className="text-sm text-white/70 mt-1">Frissítsd az értékelésed vagy a megjegyzésed</p>
+              )}
             </div>
             <button
               onClick={onClose}
@@ -88,7 +96,9 @@ export const ReviewComponent: React.FC<ReviewComponentProps> = ({
           
           {/* Submit Review Section */}
           <div className="bg-gradient-to-br from-orange-50 to-yellow-50 rounded-3xl p-8 border-2 border-orange-200 shadow-lg">
-            <h2 className="text-2xl font-black text-orange-900 mb-6">Hagyj értékelést! 💭</h2>
+            <h2 className="text-2xl font-black text-orange-900 mb-6">
+              {isEditing ? '📝 Módosítsd az értékelésed' : 'Hagyj értékelést! 💭'}
+            </h2>
 
             {/* Star Rating - Large Interactive */}
             <div className="flex gap-4 justify-center mb-8">
@@ -146,7 +156,7 @@ export const ReviewComponent: React.FC<ReviewComponentProps> = ({
               className="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 disabled:from-slate-300 disabled:to-slate-400 text-white py-4 rounded-2xl font-black uppercase text-sm tracking-widest shadow-lg flex items-center justify-center gap-3 transition-all active:scale-95 disabled:cursor-not-allowed"
             >
               <Send size={20} />
-              {isSubmitting ? 'Küldés...' : 'Review Küldése'}
+              {isSubmitting ? 'Frissítés...' : isEditing ? 'Módosítást Menteni' : 'Review Küldése'}
             </button>
           </div>
 
