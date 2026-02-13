@@ -1570,22 +1570,219 @@ const OwnerDashboard: React.FC<any> = ({ profile, businesses, companies, onUpdat
 };
 
 // ... OTHER COMPONENTS REMAINING ROBUST (FEED, SOCIAL, DETAILS) ...
-const FeedView: React.FC<any> = ({ businesses }) => (
-   <div className="space-y-10 animate-in fade-in max-w-2xl mx-auto">
-      <h1 className="text-3xl font-black text-slate-900 tracking-tight">Social Activity</h1>
-      <div className="space-y-6">
-         {businesses.flatMap((b: Business) => b.posts).sort((a: any, b: any) => b.timestamp - a.timestamp).map((post: any) => (
-            <div key={post.id} className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 flex items-start gap-6 hover:shadow-md transition-all group">
-               <div className="w-12 h-12 bg-orange-50 rounded-2xl flex items-center justify-center text-orange-500 shrink-0 group-hover:bg-orange-500 group-hover:text-white transition-colors"><Utensils size={24}/></div>
-               <div>
-                  <p className="font-black text-slate-900 text-sm italic leading-relaxed">"{post.content}"</p>
-                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mt-3">{new Date(post.timestamp).toLocaleDateString()}</p>
-               </div>
+const FeedView: React.FC<any> = ({ businesses }) => {
+   const [feedFilter, setFeedFilter] = useState<'all' | 'friends' | 'companies'>('all');
+   
+   // Mock friend activities (in real app, would come from friends' check-ins, reviews, etc.)
+   const friendActivities = [
+      {
+         id: 'f1',
+         type: 'check-in',
+         userName: 'Anna Kiss',
+         userAvatar: '👩',
+         businessName: 'Taco Galaxy',
+         businessImage: 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=100&h=100&fit=crop',
+         timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
+         content: 'checked in'
+      },
+      {
+         id: 'f2',
+         type: 'review',
+         userName: 'Péter Nagy',
+         userAvatar: '👨',
+         businessName: 'Burger Haven',
+         businessImage: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=100&h=100&fit=crop',
+         timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5 hours ago
+         content: 'left a 5-star review',
+         rating: 5,
+         comment: 'Best burger in town! 🍔'
+      }
+   ];
+
+   // Combine business posts with friend activities
+   const allPosts = [
+      ...businesses.flatMap((b: Business) => 
+         (b.posts || []).map((post: BusinessPost) => ({
+            id: post.id,
+            type: 'business-post',
+            businessName: b.name,
+            businessImage: b.imageUrl,
+            content: post.content,
+            timestamp: post.timestamp,
+            isImportant: post.isImportant
+         }))
+      ),
+      ...friendActivities
+   ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+   const filteredPosts = allPosts.filter(post => {
+      if (feedFilter === 'friends') return post.type !== 'business-post';
+      if (feedFilter === 'companies') return post.type === 'business-post';
+      return true;
+   });
+
+   return (
+      <div className="space-y-8 animate-in fade-in max-w-2xl mx-auto">
+         <div className="flex flex-col gap-4">
+            <h1 className="text-4xl font-black text-slate-900 tracking-tight">🔥 Activity Feed</h1>
+            
+            {/* Filter Tabs */}
+            <div className="flex gap-2 bg-slate-100 p-2 rounded-2xl">
+               <button
+                  onClick={() => setFeedFilter('all')}
+                  className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase transition-all ${
+                     feedFilter === 'all'
+                        ? 'bg-orange-500 text-white shadow-md'
+                        : 'text-slate-500 hover:bg-slate-200'
+                  }`}
+               >
+                  🌐 All Activity
+               </button>
+               <button
+                  onClick={() => setFeedFilter('friends')}
+                  className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase transition-all ${
+                     feedFilter === 'friends'
+                        ? 'bg-indigo-500 text-white shadow-md'
+                        : 'text-slate-500 hover:bg-slate-200'
+                  }`}
+               >
+                  👥 Friends
+               </button>
+               <button
+                  onClick={() => setFeedFilter('companies')}
+                  className={`flex-1 py-3 px-4 rounded-xl font-black text-xs uppercase transition-all ${
+                     feedFilter === 'companies'
+                        ? 'bg-emerald-500 text-white shadow-md'
+                        : 'text-slate-500 hover:bg-slate-200'
+                  }`}
+               >
+                  🏢 Companies
+               </button>
             </div>
-         ))}
+         </div>
+
+         {/* Feed Items */}
+         <div className="space-y-4">
+            {filteredPosts.length === 0 ? (
+               <div className="text-center py-12 bg-slate-50 rounded-3xl border-2 border-dashed border-slate-200">
+                  <p className="text-lg font-black text-slate-400">No activity yet</p>
+                  <p className="text-sm text-slate-500 mt-2">Follow businesses to see their posts!</p>
+               </div>
+            ) : (
+               filteredPosts.map((post, idx) => (
+                  <div
+                     key={post.id}
+                     className={`bg-white rounded-2xl p-6 border-2 transition-all hover:shadow-lg animate-in slide-in-from-bottom ${
+                        post.type === 'business-post'
+                           ? post.isImportant
+                              ? 'border-orange-300 bg-gradient-to-br from-orange-50 to-white'
+                              : 'border-slate-200'
+                           : post.type === 'check-in'
+                           ? 'border-indigo-200 bg-gradient-to-br from-indigo-50 to-white'
+                           : 'border-emerald-200 bg-gradient-to-br from-emerald-50 to-white'
+                     }`}
+                     style={{ animationDelay: `${idx * 50}ms` }}
+                  >
+                     <div className="flex items-start gap-4">
+                        {/* Avatar/Business Image */}
+                        <div className="relative shrink-0">
+                           {post.type === 'business-post' ? (
+                              <img
+                                 src={post.businessImage}
+                                 className="w-14 h-14 rounded-2xl object-cover shadow-md"
+                                 alt={post.businessName}
+                              />
+                           ) : (
+                              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-3xl shadow-md">
+                                 {post.userAvatar}
+                              </div>
+                           )}
+                           {post.isImportant && (
+                              <div className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center">
+                                 <Radio size={12} className="text-white" />
+                              </div>
+                           )}
+                        </div>
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                           {post.type === 'business-post' ? (
+                              <>
+                                 <div className="flex items-center gap-2 mb-2">
+                                    <h3 className="font-black text-slate-900">{post.businessName}</h3>
+                                    {post.isImportant && (
+                                       <span className="bg-orange-500 text-white text-[9px] font-black uppercase px-2 py-0.5 rounded-full">
+                                          Important
+                                       </span>
+                                    )}
+                                 </div>
+                                 <p className="text-sm text-slate-700 italic leading-relaxed">
+                                    "{post.content}"
+                                 </p>
+                              </>
+                           ) : post.type === 'check-in' ? (
+                              <>
+                                 <div className="mb-2">
+                                    <span className="font-black text-indigo-900">{post.userName}</span>
+                                    <span className="text-slate-600 text-sm"> checked in at </span>
+                                    <span className="font-black text-slate-900">{post.businessName}</span>
+                                 </div>
+                                 <div className="flex items-center gap-2 mt-2">
+                                    <img
+                                       src={post.businessImage}
+                                       className="w-10 h-10 rounded-lg object-cover"
+                                       alt={post.businessName}
+                                    />
+                                    <MapPin size={14} className="text-indigo-500" />
+                                 </div>
+                              </>
+                           ) : (
+                              <>
+                                 <div className="mb-2">
+                                    <span className="font-black text-emerald-900">{post.userName}</span>
+                                    <span className="text-slate-600 text-sm"> left a review for </span>
+                                    <span className="font-black text-slate-900">{post.businessName}</span>
+                                 </div>
+                                 <div className="flex gap-1 my-2">
+                                    {[1, 2, 3, 4, 5].map(i => (
+                                       <Star
+                                          key={i}
+                                          size={14}
+                                          className={i <= (post.rating || 0) ? 'fill-orange-500 text-orange-500' : 'text-orange-200'}
+                                       />
+                                    ))}
+                                 </div>
+                                 {post.comment && (
+                                    <p className="text-sm text-slate-700 italic mt-2">"{post.comment}"</p>
+                                 )}
+                                 <div className="flex items-center gap-2 mt-2">
+                                    <img
+                                       src={post.businessImage}
+                                       className="w-10 h-10 rounded-lg object-cover"
+                                       alt={post.businessName}
+                                    />
+                                 </div>
+                              </>
+                           )}
+
+                           {/* Timestamp */}
+                           <p className="text-[10px] font-black uppercase text-slate-400 mt-3">
+                              {new Date(post.timestamp).toLocaleString('hu-HU', {
+                                 month: 'short',
+                                 day: 'numeric',
+                                 hour: '2-digit',
+                                 minute: '2-digit'
+                              })}
+                           </p>
+                        </div>
+                     </div>
+                  </div>
+               ))
+            )}
+         </div>
       </div>
-   </div>
-);
+   );
+};
 
 const SocialView: React.FC<any> = ({ profile, businesses, onToggleAttendance }) => {
    const followedBusinesses = businesses.filter((b: Business) => profile.following.includes(b.id));
